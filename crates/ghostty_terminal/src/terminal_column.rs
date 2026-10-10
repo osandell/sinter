@@ -32,8 +32,14 @@ const FOCUS_OUT_SETTLE: std::time::Duration = std::time::Duration::from_millis(5
 use ui::{ActiveTheme as _, ButtonCommon as _, Clickable as _, StyledExt as _};
 
 const BAR_HEIGHT: f32 = 40.;
-const TITLE_ROW_HEIGHT: f32 = 24.;
-const WORKTREE_ROW_HEIGHT: f32 = 16.;
+/// A tab's two lines, the title (with its 16px status mark) and the worktree
+/// under it. The pair is centred in the tab's height as one block, so these
+/// only need to hold their line; the space around goes above and below it.
+const TITLE_ROW_HEIGHT: f32 = 18.;
+const WORKTREE_ROW_HEIGHT: f32 = 14.;
+/// Pulls the worktree line up towards the title: its 9px text has no capitals
+/// and sits optically low in its line box.
+const WORKTREE_ROW_NUDGE: f32 = 1.;
 const CLOSE_BUTTON_WIDTH: f32 = 32.;
 const MAX_TAB_WIDTH: f32 = 336.;
 const MIN_TAB_WIDTH: f32 = 86.;
@@ -2214,7 +2220,7 @@ impl TerminalColumn {
                     .items_center()
                     .gap(px(3.))
                     .relative()
-                    .top(px(-2.))
+                    .top(px(-WORKTREE_ROW_NUDGE))
                     .when(interactive_worktree, |this| {
                         this.hover(|style| style.bg(palette.hover))
                     })
@@ -2357,6 +2363,7 @@ impl TerminalColumn {
                     .pr(px(4.))
                     .flex()
                     .flex_col()
+                    .justify_center()
                     .child(title_row)
                     .child(worktree_row),
             )
