@@ -715,6 +715,17 @@ async fn handle_control(line: &str, cx: &mut AsyncApp) -> String {
         // arcoscope places the one window itself; the terminal column's frame
         // follows from the layout.
         "set-frame" => "framed".into(),
+        "set-window-frame" => {
+            let numbers: Option<Vec<f64>> = (1..=5)
+                .map(|index| argument(index).and_then(|value| value.parse().ok()))
+                .collect();
+            let Some([window_number, x, y, width, height]) =
+                numbers.as_deref().and_then(|numbers| <[f64; 5]>::try_from(numbers).ok())
+            else {
+                return "error missing-args".into();
+            };
+            cx.update(|_| set_window_frame(window_number as isize, x, y, width, height))
+        }
         "focus-claude" => {
             let Some(pid) = argument(1).and_then(|pid| pid.parse::<i32>().ok()) else {
                 return "error missing-args".into();
@@ -1197,6 +1208,42 @@ fn find_claude(
         }
     }
     None
+}
+
+/// arcoscope moves and sizes a window through AX in two calls, and each one
+/// shows on screen: a window growing up had its bottom edge dip between them.
+/// One `setFrame:display:` sets the whole frame at once. The frame is in AX
+/// coordinates (points, from the primary screen's top-left, y down).
+#[cfg(target_os = "macos")]
+fn set_window_frame(window_number: isize, x: f64, y: f64, width: f64, height: f64) -> String {
+    use cocoa::base::{YES, id, nil};
+    use cocoa::foundation::{NSPoint, NSRect, NSSize};
+    use objc::{class, msg_send, sel, sel_impl};
+    unsafe {
+        let app: id = msg_send![class!(NSApplication), sharedApplication];
+        let window: id = msg_send![app, windowWithWindowNumber: window_number];
+        if window == nil {
+            return "no-window".into();
+        }
+        let screens: id = msg_send![class!(NSScreen), screens];
+        let count: usize = msg_send![screens, count];
+        if count == 0 {
+            return "error no-screen".into();
+        }
+        let primary: id = msg_send![screens, objectAtIndex: 0usize];
+        let primary_frame: NSRect = msg_send![primary, frame];
+        let frame = NSRect::new(
+            NSPoint::new(x, primary_frame.size.height - y - height),
+            NSSize::new(width, height),
+        );
+        let _: () = msg_send![window, setFrame: frame display: YES];
+    }
+    "framed".into()
+}
+
+#[cfg(not(target_os = "macos"))]
+fn set_window_frame(_: isize, _: f64, _: f64, _: f64, _: f64) -> String {
+    "error unsupported".into()
 }
 
 #[cfg(target_os = "linux")]
