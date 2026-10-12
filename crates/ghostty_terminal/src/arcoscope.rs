@@ -724,7 +724,9 @@ async fn handle_control(line: &str, cx: &mut AsyncApp) -> String {
             else {
                 return "error missing-args".into();
             };
-            cx.update(|_| set_window_frame(window_number as isize, x, y, width, height))
+            // Outside cx.update: with the app borrowed, the window's resize
+            // callback is dropped and the content stays at the old size.
+            set_window_frame(window_number as isize, x, y, width, height)
         }
         "focus-claude" => {
             let Some(pid) = argument(1).and_then(|pid| pid.parse::<i32>().ok()) else {
