@@ -18,6 +18,7 @@ use workspace::{LeadingColumnLayout, Workspace};
 
 use crate::{
     GhosttyTerminal, GhosttyTerminalEvent, InheritContext, TerminalOptions,
+    blocked_note::{self, BlockedNote},
     close_confirm::{self, CloseConfirm},
     command_palette::GhosttyCommandPalette,
     graphics::{self, Bitmap, SymbolWeight, darken, lighten, mix},
@@ -402,6 +403,8 @@ pub struct TerminalColumn {
     worktree_picker: Option<WorktreePicker>,
     /// The close question hung under the tab it asks about.
     close_confirm: Option<CloseConfirm>,
+    /// The blocked note being edited, hung under its tab.
+    blocked_note: Option<BlockedNote>,
     command_palette: Option<(Entity<GhosttyCommandPalette>, Subscription)>,
     /// arcoscope's fullscreen for this worktree: the side with the keyboard takes
     /// the whole width.
@@ -491,6 +494,7 @@ impl TerminalColumn {
             dragging_divider: None,
             worktree_picker: None,
             close_confirm: None,
+            blocked_note: None,
             command_palette: None,
             fullscreen: false,
             terminal_side: false,
@@ -1382,33 +1386,59 @@ impl TerminalColumn {
         }
     }
 
-    /// The blocked lamp's note, asked for in a sheet like the fork's alert.
+    /// The blocked lamp's note, asked for in a panel under the tab.
     pub fn prompt_blocked_note(
         &mut self,
         tab_id: u64,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some(tab) = self.tabs.iter().find(|tab| tab.id == tab_id) else {
+        let Some(index) = self.tabs.iter().position(|tab| tab.id == tab_id) else {
             return;
         };
-        let Ok(ns_window) = crate::gpui_native_window(window) else {
+        let note = self.tabs[index].blocked_note.clone();
+        let input = cx.new(|cx| {
+            let input = ui_input::InputField::new(window, cx, "Väntar på ...");
+            input.set_text(&note, window, cx);
+            input.editor().move_selection_to_end(window, cx);
+            input
+        });
+        window.focus(&input.read(cx).editor().focus_handle(cx), cx);
+        let x = (index as f32 * self.tab_width())
+            .min(self.bar_width - blocked_note::WIDTH)
+            .max(0.);
+        self.blocked_note = Some(BlockedNote {
+            tab_id,
+            input,
+            x,
+            y: 1. + BAR_HEIGHT,
+        });
+        cx.notify();
+    }
+
+    pub(crate) fn blocked_note(&self) -> Option<&BlockedNote> {
+        self.blocked_note.as_ref()
+    }
+
+    /// `save` stores the field's trimmed text as the tab's note; either way
+    /// the keyboard goes back to the selected tab.
+    pub(crate) fn answer_blocked_note(
+        &mut self,
+        save: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(note) = self.blocked_note.take() else {
             return;
         };
-        let (sender, receiver) = futures::channel::oneshot::channel();
-        unsafe { crate::sheets::ask_blocked_note(ns_window, &tab.blocked_note, sender) };
-        cx.spawn(async move |this, cx| {
-            if let Ok(Some(note)) = receiver.await {
-                this.update(cx, |this, cx| {
-                    if let Some(tab) = this.tabs.iter_mut().find(|tab| tab.id == tab_id) {
-                        tab.blocked_note = note;
-                        cx.notify();
-                    }
-                })
-                .ok();
+        if save {
+            let text = note.input.read(cx).text(cx).trim().to_string();
+            if let Some(tab) = self.tabs.iter_mut().find(|tab| tab.id == note.tab_id) {
+                tab.blocked_note = text;
             }
-        })
-        .detach();
+        }
+        self.focus_selected(window, cx);
+        cx.notify();
     }
 
     /// Occludes the terminals while another workspace is shown, so they stop
@@ -2932,6 +2962,7 @@ impl Render for TerminalColumn {
             .child(bottom_strip)
             .children(self.render_worktree_picker(cx))
             .children(self.render_close_confirm(cx))
+            .children(self.render_blocked_note(cx))
             .children(self.command_palette.as_ref().map(|(palette, _)| {
                 gpui::deferred(
                     div()

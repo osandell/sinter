@@ -8,6 +8,7 @@
 
 #![cfg(any(target_os = "macos", target_os = "linux"))]
 
+mod blocked_note;
 mod claude_status;
 mod close_confirm;
 mod columns;
