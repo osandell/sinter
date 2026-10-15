@@ -151,6 +151,12 @@ pub fn reload_config() {
 
 /// The Ghostty config file, created if it does not exist yet.
 pub fn config_file_path() -> Option<std::path::PathBuf> {
+    // libghostty allocates through its global state, which only exists after
+    // `ghostty_init`. The terminal column can render before any surface (and
+    // so the runtime) exists, so resolve the path in Rust until then.
+    if APP.get().is_none() {
+        return default_config_file_path();
+    }
     let path = unsafe { ffi::ghostty_config_open_path() };
     if path.ptr.is_null() {
         return None;
@@ -159,6 +165,21 @@ pub fn config_file_path() -> Option<std::path::PathBuf> {
     let result = std::path::PathBuf::from(String::from_utf8_lossy(bytes).into_owned());
     unsafe { ffi::ghostty_string_free(path) };
     Some(result)
+}
+
+/// Ghostty's config file as it looks it up, without calling into libghostty:
+/// `$XDG_CONFIG_HOME/ghostty/config`, then the macOS application support dir.
+fn default_config_file_path() -> Option<std::path::PathBuf> {
+    let home = std::env::var_os("HOME").map(std::path::PathBuf::from)?;
+    let xdg = std::env::var_os("XDG_CONFIG_HOME")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| home.join(".config"));
+    [
+        xdg.join("ghostty/config"),
+        home.join("Library/Application Support/com.mitchellh.ghostty/config"),
+    ]
+    .into_iter()
+    .find(|path| path.is_file())
 }
 
 /// The terminal's font: the config file's first `font-family`. Read once;
@@ -277,7 +298,7 @@ pub(crate) fn apply_skin_colors(
         };
         writeln!(
             overlay,
-            "background = {}\nforeground = {}\nbackground-opacity = 0",
+            "background = {}\nforeground = {}\nbackground-opacity = 0\n{EMBEDDED_OVERRIDES}",
             hex(background),
             hex(foreground)
         )?;
@@ -310,11 +331,33 @@ pub(crate) fn apply_skin_colors(
     Ok(())
 }
 
+/// Settings the user's Ghostty config may set for the Ghostty app that make no
+/// sense inside Zed. Closing the last terminal tab leaves an empty column; it
+/// must never quit the editor.
+const EMBEDDED_OVERRIDES: &str = "quit-after-last-window-closed = false";
+
+/// Loads `EMBEDDED_OVERRIDES` on top of the user's files, so they win.
+unsafe fn load_embedded_overrides(config: ffi::ghostty_config_t) {
+    use std::io::Write;
+    let loaded = (|| -> Result<()> {
+        let mut file = tempfile::NamedTempFile::new()?;
+        writeln!(file, "{EMBEDDED_OVERRIDES}")?;
+        file.flush()?;
+        let path = CString::new(file.path().as_os_str().as_encoded_bytes())?;
+        unsafe { ffi::ghostty_config_load_file(config, path.as_ptr()) };
+        Ok(())
+    })();
+    if let Err(error) = loaded {
+        log::warn!("ghostty: could not apply embedded config overrides: {error}");
+    }
+}
+
 fn load_config() -> ffi::ghostty_config_t {
     unsafe {
         let config = ffi::ghostty_config_new();
         ffi::ghostty_config_load_default_files(config);
         ffi::ghostty_config_load_recursive_files(config);
+        load_embedded_overrides(config);
         ffi::ghostty_config_finalize(config);
         for index in 0..ffi::ghostty_config_diagnostics_count(config) {
             let diagnostic = ffi::ghostty_config_get_diagnostic(config, index);
