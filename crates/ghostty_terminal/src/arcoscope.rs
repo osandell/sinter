@@ -806,6 +806,20 @@ async fn handle_control(line: &str, cx: &mut AsyncApp) -> String {
                 "selected".into()
             })
         }
+        // `new-agent-tab`: what the terminal column's robot button does, in the
+        // window's active workspace. arcoscope's P + R sends it here, since a
+        // key chord never reaches Zed's keymap while a terminal has the keyboard.
+        "new-agent-tab" => cx.update(|cx| {
+            let Some(window) = workspace::unified_window_handle(cx) else {
+                return "no-window".into();
+            };
+            window
+                .update(cx, |_, window, cx| {
+                    window.dispatch_action(Box::new(crate::NewAgentTab), cx)
+                })
+                .map(|_| "opened".to_string())
+                .unwrap_or_else(|_| "no-window".into())
+        }),
         // `new-tab <title> <dir> <input>`: a tab in that worktree's column,
         // started in <dir> with <input> typed into its shell, neither selected
         // nor focused. Replies `tab <id>` for `focus-tab`.
