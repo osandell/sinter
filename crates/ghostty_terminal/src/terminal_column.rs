@@ -2519,17 +2519,6 @@ impl TerminalColumn {
                             .children(tabs),
                     )
                     .child(
-                        new_tab_button("ghostty-new-agent-tab", "New agent tab", cx)
-                            .children(bitmap_element(graphics::vector_robot(
-                                palette.inactive_text,
-                                16.,
-                                scale,
-                            )))
-                            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                                this.new_agent_tab(window, cx);
-                            })),
-                    )
-                    .child(
                         new_tab_button("ghostty-new-shell-tab", "New shell tab", cx)
                             .children(bitmap_element(graphics::vector_terminal(
                                 palette.inactive_text,
@@ -2539,6 +2528,17 @@ impl TerminalColumn {
                             )))
                             .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
                                 this.new_tab_following_worktree(window, cx);
+                            })),
+                    )
+                    .child(
+                        new_tab_button("ghostty-new-agent-tab", "New agent tab", cx)
+                            .children(bitmap_element(graphics::vector_robot(
+                                palette.inactive_text,
+                                16.,
+                                scale,
+                            )))
+                            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                                this.new_agent_tab(window, cx);
                             })),
                     ),
             )

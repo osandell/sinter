@@ -1679,4 +1679,12 @@
       "cmd-n": "ghostty_terminal::NewShellTab",
     },
   },
+  {
+    // The terminal column's robot button, from anywhere in the window. A chord
+    // no app binds, so a remapper (arcoscope's kanata layer) can send it.
+    "context": "Workspace",
+    "bindings": {
+      "ctrl-alt-shift-a": "ghostty_terminal::NewAgentTab",
+    },
+  },
 ]
