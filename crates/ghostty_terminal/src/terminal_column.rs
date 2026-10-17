@@ -1433,8 +1433,11 @@ impl TerminalColumn {
         };
         if save {
             let text = note.input.read(cx).text(cx).trim().to_string();
-            if let Some(tab) = self.tabs.iter_mut().find(|tab| tab.id == note.tab_id) {
+            if let Some(tab) = self.tabs.iter_mut().find(|tab| tab.id == note.tab_id)
+                && tab.blocked_note != text
+            {
                 tab.blocked_note = text;
+                crate::arcoscope::report_note_changed(cx);
             }
         }
         self.focus_selected(window, cx);

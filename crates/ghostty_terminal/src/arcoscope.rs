@@ -468,6 +468,18 @@ fn tab_token(state: ClaudeState, claude_present: bool, busy: bool, blocked: bool
     token
 }
 
+/// A tab's blocked note changed: the strips do not carry it, so the daemon
+/// is nudged to read `list-tabs` again (arcoscope's bar shows the note).
+pub fn report_note_changed(cx: &mut App) {
+    let daemon = daemon_socket_path();
+    cx.background_spawn(async move {
+        if let Ok(mut stream) = UnixStream::connect(&daemon) {
+            stream.write_all(b"tab-strips-changed\n").ok();
+        }
+    })
+    .detach();
+}
+
 /// `~/.config/arcoscope/ghostty-tab-strips/<pid>.json`, the miniature tab rows
 /// the arcoscope bar draws, and a `tab-strips-changed` nudge when it changed.
 pub fn publish_tab_strips(cx: &mut App) {
@@ -1420,6 +1432,8 @@ fn describe_tabs(column: &Entity<TerminalColumn>, cx: &App) -> Vec<serde_json::V
                 "state": claude_state_name(tab.claude_state),
                 "session": tab.claude_session,
                 "claude_title": tab.claude_title.as_ref().map(|title| title.to_string()),
+                "blocked": tab.blocked,
+                "note": tab.blocked_note,
                 // Same choice as the session band: a session's own name over
                 // arcoscope's topic, which a fork shares with its parent.
                 "topic": tab
