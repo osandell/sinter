@@ -81,7 +81,7 @@ pub struct ProjectSettings {
     pub session: SessionSettings,
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Clone, Debug)]
 pub struct SessionSettings {
     /// Whether or not to restore unsaved buffers on restart.
     ///
@@ -96,6 +96,11 @@ pub struct SessionSettings {
     ///
     /// Default: false
     pub trust_all_worktrees: bool,
+    /// Local directories whose worktrees are trusted without asking, along with
+    /// everything inside them.
+    ///
+    /// Default: []
+    pub trusted_paths: Vec<PathBuf>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
@@ -759,9 +764,22 @@ impl Settings for ProjectSettings {
             git: git_settings,
             node: content.node.clone().unwrap().into(),
             load_direnv: project.load_direnv.clone().unwrap(),
-            session: SessionSettings {
-                restore_unsaved_buffers: content.session.unwrap().restore_unsaved_buffers.unwrap(),
-                trust_all_worktrees: content.session.unwrap().trust_all_worktrees.unwrap(),
+            session: {
+                let session = content.session.clone().unwrap();
+                SessionSettings {
+                    restore_unsaved_buffers: session.restore_unsaved_buffers.unwrap(),
+                    trust_all_worktrees: session.trust_all_worktrees.unwrap(),
+                    trusted_paths: session
+                        .trusted_paths
+                        .unwrap_or_default()
+                        .iter()
+                        .map(|path| match path.strip_prefix("~/") {
+                            Some(relative) => paths::home_dir().join(relative),
+                            None if path == "~" => paths::home_dir().clone(),
+                            None => PathBuf::from(path),
+                        })
+                        .collect(),
+                }
             },
         }
     }

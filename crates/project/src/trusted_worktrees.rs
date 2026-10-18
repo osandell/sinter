@@ -481,6 +481,10 @@ impl TrustedWorktreesStore {
             return true;
         }
 
+        if worktree.read(cx).is_local() && Self::in_trusted_paths(&worktree_path, cx) {
+            return true;
+        }
+
         let is_file = worktree.read(cx).is_single_file();
         if self
             .restricted
@@ -604,6 +608,43 @@ impl TrustedWorktreesStore {
                 self.trust(&worktree_store, worktrees, cx);
             }
         }
+    }
+
+    /// Trusts the restricted local worktrees that `session.trusted_paths` now covers.
+    pub fn auto_trust_settings_paths(&mut self, cx: &mut Context<Self>) {
+        let mut newly_trusted = Vec::new();
+        for (worktree_store, worktree_ids) in &self.restricted {
+            let Some(worktree_store) = worktree_store.upgrade() else {
+                continue;
+            };
+            let covered = worktree_ids
+                .iter()
+                .filter(|worktree_id| {
+                    worktree_store
+                        .read(cx)
+                        .worktree_for_id(**worktree_id, cx)
+                        .is_some_and(|worktree| {
+                            let worktree = worktree.read(cx);
+                            worktree.is_local() && Self::in_trusted_paths(&worktree.abs_path(), cx)
+                        })
+                })
+                .map(|worktree_id| PathTrust::Worktree(*worktree_id))
+                .collect::<HashSet<_>>();
+            if !covered.is_empty() {
+                newly_trusted.push((worktree_store, covered));
+            }
+        }
+        for (worktree_store, covered) in newly_trusted {
+            self.trust(&worktree_store, covered, cx);
+        }
+    }
+
+    fn in_trusted_paths(worktree_path: &Path, cx: &App) -> bool {
+        ProjectSettings::get_global(cx)
+            .session
+            .trusted_paths
+            .iter()
+            .any(|trusted_path| worktree_path.starts_with(trusted_path))
     }
 
     pub fn schedule_serialization<S>(&mut self, cx: &mut Context<Self>, serialize: S)

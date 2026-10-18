@@ -2416,6 +2416,11 @@
     //
     // Default: false
     "trust_all_worktrees": false,
+    // Local directories whose worktrees are trusted without asking, along with
+    // everything inside them. A leading `~` is expanded to the home directory.
+    //
+    // Default: []
+    "trusted_paths": [],
   },
   // Zed's Prettier integration settings.
   // Allows to enable/disable formatting with Prettier

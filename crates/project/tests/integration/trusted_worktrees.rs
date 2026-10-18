@@ -1,7 +1,7 @@
 use std::{cell::RefCell, path::PathBuf, rc::Rc};
 
 use collections::HashSet;
-use gpui::{Entity, TestAppContext};
+use gpui::{Entity, TestAppContext, UpdateGlobal as _};
 use serde_json::json;
 use settings::SettingsStore;
 use util::path;
@@ -954,4 +954,72 @@ async fn test_invisible_worktree_stores_do_not_affect_trust(cx: &mut TestAppCont
         }),
         "only visible worktrees should be restricted"
     );
+}
+
+#[gpui::test]
+async fn test_settings_trusted_paths(cx: &mut TestAppContext) {
+    init_test(cx);
+
+    let fs = FakeFs::new(cx.executor());
+    fs.insert_tree(
+        path!("/"),
+        json!({
+            "trusted": { "project_a": { "main.rs": "fn main() {}" } },
+            "other": { "project_b": { "lib.rs": "pub fn lib() {}" } }
+        }),
+    )
+    .await;
+
+    let project = Project::test(
+        fs,
+        [
+            path!("/trusted/project_a").as_ref(),
+            path!("/other/project_b").as_ref(),
+        ],
+        cx,
+    )
+    .await;
+    let worktree_store = project.read_with(cx, |project, _| project.worktree_store());
+    let worktree_ids: Vec<_> = worktree_store.read_with(cx, |store, cx| {
+        store
+            .worktrees()
+            .map(|worktree| worktree.read(cx).id())
+            .collect()
+    });
+    assert_eq!(worktree_ids.len(), 2);
+    let (inside, outside) = (worktree_ids[0], worktree_ids[1]);
+
+    let trusted_worktrees = init_trust_global(worktree_store.clone(), cx);
+
+    for &worktree_id in &worktree_ids {
+        let can_trust = trusted_worktrees.update(cx, |store, cx| {
+            store.can_trust(&worktree_store, worktree_id, cx)
+        });
+        assert!(!can_trust, "worktree should be restricted initially");
+    }
+
+    cx.update(|cx| {
+        SettingsStore::update_global(cx, |store, cx| {
+            store.update_user_settings(cx, |settings| {
+                settings.session.get_or_insert_default().trusted_paths =
+                    Some(vec![path!("/trusted").to_string()]);
+            });
+        });
+    });
+    trusted_worktrees.update(cx, |store, cx| {
+        store.auto_trust_settings_paths(cx);
+    });
+
+    let has_restricted = trusted_worktrees.read_with(cx, |store, cx| {
+        store.has_restricted_worktrees(&worktree_store, cx)
+    });
+    assert!(has_restricted, "the worktree outside stays restricted");
+    let can_trust_inside = trusted_worktrees.update(cx, |store, cx| {
+        store.can_trust(&worktree_store, inside, cx)
+    });
+    assert!(can_trust_inside, "a worktree under a trusted path is trusted");
+    let can_trust_outside = trusted_worktrees.update(cx, |store, cx| {
+        store.can_trust(&worktree_store, outside, cx)
+    });
+    assert!(!can_trust_outside, "a worktree elsewhere is not");
 }

@@ -1521,12 +1521,15 @@ impl Workspace {
             .detach();
 
             cx.observe_global::<SettingsStore>(|_, cx| {
-                if ProjectSettings::get_global(cx).session.trust_all_worktrees {
-                    if let Some(trusted_worktrees) = TrustedWorktrees::try_get_global(cx) {
-                        trusted_worktrees.update(cx, |trusted_worktrees, cx| {
+                let trust_all = ProjectSettings::get_global(cx).session.trust_all_worktrees;
+                if let Some(trusted_worktrees) = TrustedWorktrees::try_get_global(cx) {
+                    trusted_worktrees.update(cx, |trusted_worktrees, cx| {
+                        if trust_all {
                             trusted_worktrees.auto_trust_all(cx);
-                        })
-                    }
+                        } else {
+                            trusted_worktrees.auto_trust_settings_paths(cx);
+                        }
+                    })
                 }
             })
             .detach();

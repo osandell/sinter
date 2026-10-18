@@ -370,9 +370,7 @@ pub struct DapSettingsContent {
 }
 
 #[with_fallible_options]
-#[derive(
-    Default, Copy, Clone, PartialEq, Eq, Debug, Serialize, Deserialize, JsonSchema, MergeFrom,
-)]
+#[derive(Default, Clone, PartialEq, Eq, Debug, Serialize, Deserialize, JsonSchema, MergeFrom)]
 pub struct SessionSettingsContent {
     /// Whether or not to restore unsaved buffers on restart.
     ///
@@ -387,6 +385,11 @@ pub struct SessionSettingsContent {
     ///
     /// Default: false
     pub trust_all_worktrees: Option<bool>,
+    /// Local directories whose worktrees are trusted without asking, along with
+    /// everything inside them. A leading `~` is expanded to the home directory.
+    ///
+    /// Default: []
+    pub trusted_paths: Option<Vec<String>>,
 }
 
 #[derive(Deserialize, Serialize, Clone, PartialEq, Eq, JsonSchema, MergeFrom, Debug)]
