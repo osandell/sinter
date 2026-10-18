@@ -2440,6 +2440,8 @@ const DEFAULT_KEYBINDS: &[(&str, &str)] = &[
     ("super+backspace", "text:\\x15"),
     ("alt+left", "esc:b"),
     ("alt+right", "esc:f"),
+    // Readline's backward-kill-word (ESC DEL), as on the Mac.
+    ("alt+backspace", "text:\\x1b\\x7f"),
 ];
 
 /// A trigger in canonical form: modifiers in a fixed order, then the key in

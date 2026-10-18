@@ -333,8 +333,10 @@ pub(crate) fn apply_skin_colors(
 
 /// Settings the user's Ghostty config may set for the Ghostty app that make no
 /// sense inside Zed. Closing the last terminal tab leaves an empty column; it
-/// must never quit the editor.
-const EMBEDDED_OVERRIDES: &str = "quit-after-last-window-closed = false";
+/// must never quit the editor. Option+Backspace deletes the previous word
+/// (readline's backward-kill-word, ESC DEL) as in other terminals, without
+/// `macos-option-as-alt`.
+const EMBEDDED_OVERRIDES: &str = "quit-after-last-window-closed = false\nkeybind = alt+backspace=text:\\x1b\\x7f";
 
 /// Loads `EMBEDDED_OVERRIDES` on top of the user's files, so they win.
 unsafe fn load_embedded_overrides(config: ffi::ghostty_config_t) {
