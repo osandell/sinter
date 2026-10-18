@@ -93,6 +93,9 @@ struct Vt {
     mouse: vt::GhosttyMouseEncoder,
     mouse_event: vt::GhosttyMouseEvent,
     effects: *mut Effects,
+    /// Set on a light skin: program colours mapped by `adapt_dark_color`, cached.
+    adapt: Option<std::collections::HashMap<(Rgb, bool), Rgb>>,
+    builtin_palette: [vt::GhosttyColorRgb; 256],
 }
 
 // SAFETY: the handles are only touched with the `Shared::vt` mutex held.
@@ -359,6 +362,8 @@ impl Vt {
                 mouse: ptr::null_mut(),
                 mouse_event: ptr::null_mut(),
                 effects,
+                adapt: None,
+                builtin_palette: [vt::GhosttyColorRgb { r: 0, g: 0, b: 0 }; 256],
             };
             check(vt::ghostty_render_state_new(ptr::null(), &mut this.render), "render_state_new")?;
             check(vt::ghostty_render_state_row_iterator_new(ptr::null(), &mut this.rows), "row_iterator_new")?;
@@ -390,6 +395,9 @@ impl Vt {
             }
             let lines: usize = runtime::config().scrollback_lines.unwrap_or(10_000);
             set(vt::GHOSTTY_TERMINAL_OPT_SCROLLBACK_MAX_LINES, &lines as *const usize as *const c_void);
+            let mut palette = this.builtin_palette;
+            this.get(vt::GHOSTTY_TERMINAL_DATA_COLOR_PALETTE_DEFAULT, &mut palette);
+            this.builtin_palette = palette;
             Ok(this)
         }
     }
@@ -402,7 +410,8 @@ impl Vt {
         unsafe { vt::ghostty_terminal_get(self.terminal, data, out as *mut T as *mut c_void) == vt::GHOSTTY_SUCCESS }
     }
 
-    fn set_colors(&mut self, background: Rgb, foreground: Rgb, cursor: Option<Rgb>, palette: &[(u8, Rgb)]) {
+    fn set_colors(&mut self, background: Rgb, foreground: Rgb, cursor: Option<Rgb>, palette: &[(u8, Rgb)], adapt: bool) {
+        self.adapt = adapt.then(Default::default);
         unsafe {
             let set = |option, value: *const c_void| vt::ghostty_terminal_set(self.terminal, option, value);
             let background = background.to_vt();
@@ -416,16 +425,13 @@ impl Vt {
                 }
                 None => set(vt::GHOSTTY_TERMINAL_OPT_COLOR_CURSOR, ptr::null()),
             };
-            if !palette.is_empty() {
-                let mut colors = [vt::GhosttyColorRgb { r: 0, g: 0, b: 0 }; 256];
-                if !self.get(vt::GHOSTTY_TERMINAL_DATA_COLOR_PALETTE_DEFAULT, &mut colors) {
-                    self.get(vt::GHOSTTY_TERMINAL_DATA_COLOR_PALETTE, &mut colors);
-                }
-                for (index, color) in palette {
-                    colors[*index as usize] = color.to_vt();
-                }
-                set(vt::GHOSTTY_TERMINAL_OPT_COLOR_PALETTE, &colors as *const _ as *const c_void);
+            // On top of Ghostty's built-in palette, so a theme variant without
+            // a palette drops the last one's.
+            let mut colors = self.builtin_palette;
+            for (index, color) in palette {
+                colors[*index as usize] = color.to_vt();
             }
+            set(vt::GHOSTTY_TERMINAL_OPT_COLOR_PALETTE, &colors as *const _ as *const c_void);
         }
     }
 
@@ -812,7 +818,7 @@ impl Vt {
         frame
     }
 
-    unsafe fn cell(&self) -> CellFrame {
+    unsafe fn cell(&mut self) -> CellFrame {
         unsafe {
             let get = |data, out: *mut c_void| vt::ghostty_render_state_row_cells_get(self.cells, data, out) == vt::GHOSTTY_SUCCESS;
             let mut cell = CellFrame::default();
@@ -861,12 +867,92 @@ impl Vt {
                     cell.background = Some(Rgb::from_vt(color));
                 }
             }
+            // As the fork's libghostty `adapt-dark-colors`: only colours the
+            // program set explicitly; the defaults are the skin's own.
+            if let Some(cache) = self.adapt.as_mut() {
+                if cache.len() > 4096 {
+                    cache.clear();
+                }
+                let mut adapt = |color: Option<Rgb>, background: bool| {
+                    color.map(|color| *cache.entry((color, background)).or_insert_with(|| adapt_dark_color(color, background)))
+                };
+                cell.foreground = adapt(cell.foreground, false);
+                cell.background = adapt(cell.background, true);
+            }
             cell
         }
     }
 }
 
-#[derive(Clone, Copy, Default, PartialEq, Debug)]
+/// `adapt-dark-colors` (the fork's libghostty patch, `src/renderer/adapt.zig`):
+/// a colour from a program written for a dark terminal that would not read on
+/// a light background has its OKLab lightness changed, hue and chroma kept.
+/// Text lighter than 0.65 is reflected about it (never below 0.25); dark
+/// backgrounds are pushed up towards a pale tint. Everything else is kept.
+fn adapt_dark_color(rgb: Rgb, background: bool) -> Rgb {
+    const FG_FOLD: f32 = 0.65;
+    const FG_FLOOR: f32 = 0.25;
+    let to_linear = |c: u8| {
+        let v = c as f32 / 255.;
+        if v <= 0.04045 { v / 12.92 } else { ((v + 0.055) / 1.055).powf(2.4) }
+    };
+    let from_linear = |v: f32| {
+        let c = if v <= 0.0031308 { v * 12.92 } else { 1.055 * v.powf(1. / 2.4) - 0.055 };
+        (c.clamp(0., 1.) * 255.).round() as u8
+    };
+    let (r, g, b) = (to_linear(rgb.0), to_linear(rgb.1), to_linear(rgb.2));
+    let l_ = (0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b).cbrt();
+    let m_ = (0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b).cbrt();
+    let s_ = (0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b).cbrt();
+    let lightness = 0.2104542553 * l_ + 0.7936177850 * m_ - 0.0040720468 * s_;
+    let a = 1.9779984951 * l_ - 2.4285922050 * m_ + 0.4505937099 * s_;
+    let b = 0.0259040371 * l_ + 0.7827717662 * m_ - 0.8086757660 * s_;
+    let target = if background {
+        lightness.max(1. - 0.55 * lightness.max(0.).powf(1.6))
+    } else if lightness <= FG_FOLD {
+        return rgb;
+    } else {
+        FG_FLOOR.max(2. * FG_FOLD - lightness)
+    };
+    if target == lightness {
+        return rgb;
+    }
+    let l = target.clamp(0., 1.);
+    let to_rgb_linear = |a: f32, b: f32| {
+        let l_ = l + 0.3963377774 * a + 0.2158037573 * b;
+        let m_ = l - 0.1055613458 * a - 0.0638541728 * b;
+        let s_ = l - 0.0894841775 * a - 1.2914855480 * b;
+        let (l3, m3, s3) = (l_ * l_ * l_, m_ * m_ * m_, s_ * s_ * s_);
+        [
+            4.0767416621 * l3 - 3.3077115913 * m3 + 0.2309699292 * s3,
+            -1.2684380046 * l3 + 2.6097574011 * m3 - 0.3413193965 * s3,
+            -0.0041960863 * l3 - 0.7034186147 * m3 + 1.7076147010 * s3,
+        ]
+    };
+    let in_gamut = |c: [f32; 3]| c.iter().all(|v| (-0.0001..=1.0001).contains(v));
+    // Chroma is reduced (never lightness or hue) until the colour fits.
+    let mut c = to_rgb_linear(a, b);
+    if !in_gamut(c) {
+        let (mut lo, mut hi) = (0f32, 1f32);
+        for _ in 0..12 {
+            let mid = (lo + hi) / 2.;
+            if in_gamut(to_rgb_linear(a * mid, b * mid)) { lo = mid } else { hi = mid }
+        }
+        c = to_rgb_linear(a * lo, b * lo);
+    }
+    Rgb(from_linear(c[0]), from_linear(c[1]), from_linear(c[2]))
+}
+
+/// Relative luminance above the midpoint between black and white in contrast.
+fn is_light(color: Rgb) -> bool {
+    let linear = |c: u8| {
+        let c = c as f32 / 255.;
+        if c <= 0.04045 { c / 12.92 } else { ((c + 0.055) / 1.055).powf(2.4) }
+    };
+    0.2126 * linear(color.0) + 0.7152 * linear(color.1) + 0.0722 * linear(color.2) > 0.18
+}
+
+#[derive(Clone, Copy, Default, PartialEq, Eq, Hash, Debug)]
 struct Rgb(u8, u8, u8);
 
 impl Rgb {
@@ -2040,14 +2126,21 @@ impl GhosttyTerminal {
         }
         self.config_generation = Some(generation);
         self.skin_colors = Some(skin);
-        let config = runtime::config();
         let colors = runtime::terminal_colors();
         let (background, foreground) = skin.unwrap_or((Rgb::from_rgba(colors.background), Rgb::from_rgba(colors.foreground)));
+        // As on macOS: the skin, not the system appearance, picks the config's
+        // light or dark theme variant, and on a light skin programs keep their
+        // dark themes, with the colours that would not read on it adapted.
+        let light_skin = skin.is_some_and(|(background, _)| is_light(background));
+        let config = match skin {
+            Some(_) => runtime::config_for_variant(!light_skin),
+            None => runtime::config(),
+        };
         let palette: Vec<(u8, Rgb)> = config.palette.iter().map(|(index, color)| (*index, Rgb::from_rgba(*color))).collect();
         self.shared
             .vt
             .lock()
-            .set_colors(background, foreground, config.cursor_color.map(Rgb::from_rgba), &palette);
+            .set_colors(background, foreground, config.cursor_color.map(Rgb::from_rgba), &palette, light_skin);
     }
 
     fn paint_frame(&mut self, bounds: Bounds<Pixels>, window: &mut Window, cx: &mut App) {

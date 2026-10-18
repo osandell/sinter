@@ -442,6 +442,12 @@ pub fn set_color_scheme(dark: bool) {
     }
 }
 
+/// The config with its `theme` variant for a dark or light background, which an
+/// arcoscope skin decides instead of the system appearance.
+pub fn config_for_variant(dark: bool) -> Arc<Config> {
+    if dark == is_dark() { config() } else { Arc::new(load(dark)) }
+}
+
 pub fn is_dark() -> bool {
     DARK.load(Ordering::Relaxed)
 }
