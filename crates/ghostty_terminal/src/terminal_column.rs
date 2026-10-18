@@ -2673,9 +2673,12 @@ impl TerminalColumn {
         let shown = tab
             .and_then(|tab| tab.topic_shown)
             .filter(|index| *index + 1 < topic_count);
-        // An earlier topic: its own title, and the prompt that began it where
-        // the live line goes.
-        let (topic, body) = match shown.and_then(|index| info.topics.get(index)) {
+        // An earlier topic: its own title, and what was done under it where
+        // the live line goes (the prompt that began it until that summary
+        // is written).
+        let earlier = shown.and_then(|index| info.topics.get(index));
+        let summary: Vec<SharedString> = earlier.map(|entry| entry.summary.clone()).unwrap_or_default();
+        let (topic, body) = match earlier {
             Some(entry) => (
                 entry.topic.clone(),
                 SharedString::from(format!("\u{21b6} {}", entry.prompt)),
@@ -2825,9 +2828,13 @@ impl TerminalColumn {
                                 .text_size(px(body_size))
                                 .line_height(px(body_line))
                                 .overflow_hidden()
-                                .line_clamp(3)
                                 .text_color(palette.inactive_text)
-                                .child(body),
+                                .when(summary.is_empty(), |this| this.line_clamp(3).child(body))
+                                // One line per point, cut short rather than
+                                // pushing the next one out.
+                                .children(summary.into_iter().map(|point| {
+                                    div().w_full().truncate().child(SharedString::from(format!("\u{2022} {point}")))
+                                })),
                         ),
                 )
                 .into_any_element(),

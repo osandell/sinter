@@ -9,7 +9,8 @@
 //!
 //! `topic` is what the session is about at the moment (a new one when the work
 //! moves on), `topics` every topic so far, oldest first, each with the start of
-//! the prompt that began it; `now` is what is going on at the moment, or what
+//! the prompt that began it and, once the work has moved on, what was done
+//! under it in up to three points (`summary`); `now` is what is going on at the moment, or what
 //! Claude's last reply wants once the turn is over. Drawn as the band under the
 //! terminal (`render_session_band`), whose chevrons step through `topics`.
 
@@ -27,6 +28,9 @@ pub struct SessionInfo {
 pub struct TopicEntry {
     pub topic: SharedString,
     pub prompt: SharedString,
+    /// What was done under the topic, in up to three points, written once
+    /// the work has moved on to the next one.
+    pub summary: Vec<SharedString>,
 }
 
 impl SessionInfo {
@@ -48,6 +52,8 @@ struct TopicRecord {
     topic: Option<String>,
     #[serde(default)]
     prompt: Option<String>,
+    #[serde(default)]
+    summary: Vec<String>,
 }
 
 /// The session's file, or None when arcoscope has not written one (yet).
@@ -69,6 +75,12 @@ pub fn read(session: &str) -> Option<SessionInfo> {
             Some(TopicEntry {
                 topic: clean(record.topic)?,
                 prompt: clean(record.prompt).unwrap_or_default(),
+                summary: record
+                    .summary
+                    .into_iter()
+                    .filter_map(|point| clean(Some(point)))
+                    .take(3)
+                    .collect(),
             })
         })
         .collect();
