@@ -1545,15 +1545,26 @@ fn handle_open_request(request: OpenRequest, app_state: Arc<AppState>, cx: &mut 
                 #[cfg(not(any(target_os = "macos", target_os = "linux")))]
                 let _ = width;
             }
-            OpenRequestKind::ArcoscopeFullscreen { path } => {
+            OpenRequestKind::ArcoscopeFullscreen {
+                path,
+                state,
+                terminal_side,
+            } => {
                 #[cfg(any(target_os = "macos", target_os = "linux"))]
                 if let Some((mw, target_workspace)) = arcoscope_target(&path, cx) {
                     mw.update(cx, |mw, window, cx| {
                         if mw.workspace() != &target_workspace {
                             mw.activate(target_workspace.clone(), None, window, cx);
                         }
-                        target_workspace.update(cx, |workspace, cx| {
-                            ghostty_terminal::toggle_fullscreen(workspace, window, cx)
+                        target_workspace.update(cx, |workspace, cx| match state {
+                            Some(on) => ghostty_terminal::set_fullscreen(
+                                workspace,
+                                on,
+                                terminal_side,
+                                window,
+                                cx,
+                            ),
+                            None => ghostty_terminal::toggle_fullscreen(workspace, window, cx),
                         });
                     })
                     .log_err();
@@ -1561,7 +1572,7 @@ fn handle_open_request(request: OpenRequest, app_state: Arc<AppState>, cx: &mut 
                     log::warn!("arcoscope fullscreen: no workspace for {path}");
                 }
                 #[cfg(not(any(target_os = "macos", target_os = "linux")))]
-                let _ = path;
+                let _ = (path, state, terminal_side);
             }
             OpenRequestKind::ArcoscopeGitViewClose { path } => {
                 let Some((mw, _)) = arcoscope_target(&path, cx) else {

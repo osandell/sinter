@@ -130,6 +130,11 @@ pub enum OpenRequestKind {
     /// or editor) that has the keyboard.
     ArcoscopeFullscreen {
         path: String,
+        /// `&state=on|off`: set rather than toggle, so asking twice keeps it.
+        state: Option<bool>,
+        /// `&side=terminal|editor`: the half that fills the window and gets the
+        /// keyboard, instead of the one that has it now.
+        terminal_side: Option<bool>,
     },
     /// arcoscope's terminal width for the terminal column (points).
     ArcoscopeTerminalWidth {
@@ -234,9 +239,15 @@ impl std::fmt::Debug for OpenRequestKind {
                 .field("editor", editor)
                 .field("terminal", terminal)
                 .finish(),
-            Self::ArcoscopeFullscreen { path } => f
+            Self::ArcoscopeFullscreen {
+                path,
+                state,
+                terminal_side,
+            } => f
                 .debug_struct("ArcoscopeFullscreen")
                 .field("path", path)
+                .field("state", state)
+                .field("terminal_side", terminal_side)
                 .finish(),
             Self::ArcoscopeTerminalWidth { width } => f
                 .debug_struct("ArcoscopeTerminalWidth")
@@ -414,11 +425,33 @@ impl OpenRequest {
                     .context("zed://arcoscope/terminal-width needs ?width=")?;
                 this.kind = Some(OpenRequestKind::ArcoscopeTerminalWidth { width });
             } else if let Some(query) = url.strip_prefix("zed://arcoscope/fullscreen?") {
-                let path = url::form_urlencoded::parse(query.as_bytes())
-                    .find(|(k, _)| k == "path")
-                    .map(|(_, v)| v.into_owned())
-                    .context("zed://arcoscope/fullscreen needs ?path=")?;
-                this.kind = Some(OpenRequestKind::ArcoscopeFullscreen { path });
+                let param = |name: &str| {
+                    url::form_urlencoded::parse(query.as_bytes())
+                        .find(|(k, _)| k == name)
+                        .map(|(_, v)| v.into_owned())
+                };
+                let path = param("path").context("zed://arcoscope/fullscreen needs ?path=")?;
+                let state = match param("state").as_deref() {
+                    None => None,
+                    Some("on") => Some(true),
+                    Some("off") => Some(false),
+                    Some(other) => {
+                        anyhow::bail!("zed://arcoscope/fullscreen: state={other}, not on or off")
+                    }
+                };
+                let terminal_side = match param("side").as_deref() {
+                    None => None,
+                    Some("terminal") => Some(true),
+                    Some("editor") => Some(false),
+                    Some(other) => anyhow::bail!(
+                        "zed://arcoscope/fullscreen: side={other}, not terminal or editor"
+                    ),
+                };
+                this.kind = Some(OpenRequestKind::ArcoscopeFullscreen {
+                    path,
+                    state,
+                    terminal_side,
+                });
             } else if let Some(query) = url.strip_prefix("zed://arcoscope/git-view-close?") {
                 // Sent by arcoscope before its terminal and editor keys move the
                 // keyboard, which the git view would otherwise keep.

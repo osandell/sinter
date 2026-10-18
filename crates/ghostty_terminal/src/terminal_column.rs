@@ -1501,6 +1501,14 @@ impl TerminalColumn {
         self.layout()
     }
 
+    /// Fullscreen on or off, the side kept as it is (the caller moves the
+    /// keyboard when it names a side).
+    pub fn set_fullscreen(&mut self, on: bool, window: &Window, cx: &mut Context<Self>) {
+        self.terminal_side = self.focus_handle.contains_focused(window, cx);
+        self.fullscreen = on;
+        cx.notify();
+    }
+
     /// Records which side is about to get the keyboard, for callers that move
     /// it themselves while updating the workspace (so the hidden side is laid
     /// out before it is focused).

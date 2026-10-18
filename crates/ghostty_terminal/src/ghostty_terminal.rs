@@ -146,6 +146,30 @@ pub fn toggle_fullscreen(
     }
 }
 
+/// arcoscope's fullscreen set rather than toggled (`state=on|off`), so a
+/// repeated request keeps it. With `terminal_side` the keyboard goes to that
+/// half, which then fills the window.
+pub fn set_fullscreen(
+    workspace: &mut Workspace,
+    on: bool,
+    terminal_side: Option<bool>,
+    window: &mut Window,
+    cx: &mut Context<Workspace>,
+) {
+    let Some(column) = column_of(workspace) else {
+        return;
+    };
+    column.update(cx, |column, cx| column.set_fullscreen(on, window, cx));
+    match terminal_side {
+        Some(true) => focus_terminal(workspace, window, cx),
+        Some(false) => focus_editor(workspace, window, cx),
+        None => {
+            let layout = column.read(cx).layout();
+            workspace.set_leading_column_layout(layout, cx);
+        }
+    }
+}
+
 /// Moves the keyboard to the terminal column. In fullscreen the column is
 /// laid out first, since a hidden column cannot take focus.
 pub fn focus_terminal(workspace: &mut Workspace, window: &mut Window, cx: &mut Context<Workspace>) {
