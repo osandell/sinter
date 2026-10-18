@@ -7,11 +7,13 @@ use std::{
 };
 
 use collections::{HashMap, HashSet};
-use gpui::{DismissEvent, EventEmitter, FocusHandle, Focusable, ScrollHandle, WeakEntity};
+use gpui::{
+    DismissEvent, EventEmitter, FocusHandle, Focusable, ScrollHandle, Subscription, WeakEntity,
+};
 
 use project::{
     WorktreeId,
-    trusted_worktrees::{PathTrust, RemoteHostLocation, TrustedWorktrees},
+    trusted_worktrees::{PathTrust, RemoteHostLocation, TrustedWorktrees, TrustedWorktreesEvent},
     worktree_store::WorktreeStore,
 };
 use smallvec::SmallVec;
@@ -32,6 +34,7 @@ pub struct SecurityModal {
     focus_handle: FocusHandle,
     project_list_scroll_handle: ScrollHandle,
     trusted: Option<bool>,
+    _trust_subscription: Option<Subscription>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -261,6 +264,16 @@ impl SecurityModal {
             trust_parents: false,
             home_dir: std::env::home_dir(),
             trusted: None,
+            // A worktree can become trusted while the modal is open (session.trusted_paths
+            // changing, or Trust pressed in another window); close the modal then, as if
+            // Trust and Continue had been pressed.
+            _trust_subscription: TrustedWorktrees::try_get_global(cx).map(|trusted_worktrees| {
+                cx.subscribe(&trusted_worktrees, |this, _, event, cx| {
+                    if let TrustedWorktreesEvent::Trusted(..) = event {
+                        this.refresh_restricted_paths(cx);
+                    }
+                })
+            }),
         };
         this.refresh_restricted_paths(cx);
 
