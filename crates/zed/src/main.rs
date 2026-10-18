@@ -4,14 +4,14 @@
 mod reliability;
 mod zed;
 
-// Ensure the binary name stays in sync with APP_NAME so that the paths used
-// at runtime (data dir, config dir, etc.) match what the binary is called.
+// Sinter keeps Zed's binary name inside its builds: the CLI finds the app at
+// Contents/MacOS/zed and the packaging scripts take target/*/zed, then
+// install it under Sinter's name. The data and config directories follow
+// APP_NAME, which is Sinter's.
 const _: () = assert!(
-    paths::APP_NAME_LOWERCASE
-        .as_bytes()
-        .eq_ignore_ascii_case(env!("CARGO_BIN_NAME").as_bytes()),
-    "paths::APP_NAME_LOWERCASE must match the binary name. \
-     Forks: update APP_NAME in crates/paths/src/paths.rs when renaming the binary.",
+    paths::APP_NAME_LOWERCASE.as_bytes().eq_ignore_ascii_case(b"sinter")
+        && env!("CARGO_BIN_NAME").as_bytes().eq_ignore_ascii_case(b"zed"),
+    "Sinter: APP_NAME is Sinter and the binary is built as zed (see above).",
 );
 
 use agent::{SharedThread, ThreadStore};
@@ -95,7 +95,7 @@ fn build_application() -> Application {
 }
 
 fn files_not_created_on_launch(errors: HashMap<io::ErrorKind, Vec<&Path>>) {
-    let message = "Zed failed to launch";
+    let message = "Sinter failed to launch";
     let error_details = errors
         .into_iter()
         .flat_map(|(kind, paths)| {
@@ -177,7 +177,7 @@ fn fail_to_open_window(e: anyhow::Error, _cx: &mut App) {
             proxy
                 .add_notification(
                     notification_id,
-                    Notification::new("Zed failed to launch")
+                    Notification::new("Sinter failed to launch")
                         .body(Some(
                             format!(
                                 "{e:?}. See https://zed.dev/docs/linux for troubleshooting steps."
@@ -303,6 +303,8 @@ fn main() {
         }
     }
 
+    // Before init_paths creates Sinter's directories empty.
+    let adopted = paths::adopt_legacy_dirs();
     let file_errors = init_paths();
     if !file_errors.is_empty() {
         files_not_created_on_launch(file_errors);
@@ -321,6 +323,9 @@ fn main() {
         };
     }
     ztracing::init();
+    for line in adopted {
+        log::info!("adopted Zed Dev's directory: {line}");
+    }
 
     let version = option_env!("ZED_BUILD_ID");
     let app_commit_sha =
@@ -2376,6 +2381,7 @@ fn parse_url_arg(arg: &str, cx: &App) -> String {
         Err(_) => {
             if arg.starts_with("file://")
                 || arg.starts_with("zed://")
+                || arg.starts_with("sinter://")
                 || arg.starts_with("zed-cli://")
                 || arg.starts_with("ssh://")
                 || parse_zed_link(arg, cx).is_some()

@@ -15,7 +15,11 @@ pub const EDITORCONFIG_NAME: &str = ".editorconfig";
 /// and state directory paths.
 ///
 /// Forks should change this to avoid colliding with Zed's user data.
-pub const APP_NAME: &str = "Zed";
+pub const APP_NAME: &str = "Sinter";
+
+/// The name this fork had before it became Sinter (Zed Dev), whose
+/// directories it shared with Zed itself. Sinter starts from a copy of them.
+const LEGACY_APP_NAME: &str = "Zed";
 
 /// Lowercased form of [`APP_NAME`], for use in XDG-style paths on
 /// Linux/FreeBSD and the macOS `~/.config` fallback.
@@ -169,6 +173,80 @@ pub fn data_dir() -> &'static PathBuf {
             config_dir().clone() // Fallback
         }
     })
+}
+
+/// The config and data directories as Zed (and this fork as Zed Dev) has
+/// them; None on platforms Sinter does not run on.
+fn legacy_dirs() -> Option<(PathBuf, PathBuf)> {
+    let lowercase = LEGACY_APP_NAME.to_ascii_lowercase();
+    if cfg!(target_os = "macos") {
+        Some((
+            home_dir().join(".config").join(&lowercase),
+            home_dir()
+                .join("Library/Application Support")
+                .join(LEGACY_APP_NAME),
+        ))
+    } else if cfg!(any(target_os = "linux", target_os = "freebsd")) {
+        Some((
+            dirs::config_dir()?.join(&lowercase),
+            dirs::data_local_dir()?.join(&lowercase),
+        ))
+    } else {
+        None
+    }
+}
+
+/// The data directory Zed Dev used, where its URL socket still listens for
+/// callers that predate the rename.
+pub fn legacy_data_dir() -> Option<PathBuf> {
+    legacy_dirs().map(|(_, data)| data)
+}
+
+/// On Sinter's first start, its config and data directories begin as copies
+/// of Zed Dev's (settings, keymap, themes, the database with sessions and
+/// trusted worktrees, extensions, language servers). The originals stay:
+/// Zed itself uses them too. Sockets are not copied. Does nothing with a
+/// custom data directory or once Sinter's directories exist.
+pub fn adopt_legacy_dirs() -> Vec<String> {
+    let mut copied = Vec::new();
+    if CUSTOM_DATA_DIR.get().is_some() {
+        return copied;
+    }
+    let Some((legacy_config, legacy_data)) = legacy_dirs() else {
+        return copied;
+    };
+    for (from, to) in [(legacy_config, config_dir()), (legacy_data, data_dir())] {
+        if to.exists() || !from.is_dir() || from == *to {
+            continue;
+        }
+        match copy_tree(&from, to) {
+            Ok(()) => copied.push(format!("{} -> {}", from.display(), to.display())),
+            Err(error) => copied.push(format!(
+                "{} -> {} failed: {error}",
+                from.display(),
+                to.display()
+            )),
+        }
+    }
+    copied
+}
+
+fn copy_tree(from: &Path, to: &Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(to)?;
+    for entry in std::fs::read_dir(from)? {
+        let entry = entry?;
+        let file_type = entry.file_type()?;
+        let target = to.join(entry.file_name());
+        if file_type.is_dir() {
+            copy_tree(&entry.path(), &target)?;
+        } else if file_type.is_symlink() {
+            #[cfg(unix)]
+            std::os::unix::fs::symlink(std::fs::read_link(entry.path())?, &target)?;
+        } else if file_type.is_file() {
+            std::fs::copy(entry.path(), &target)?;
+        }
+    }
+    Ok(())
 }
 
 pub fn state_dir() -> &'static PathBuf {

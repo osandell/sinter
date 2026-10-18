@@ -288,6 +288,11 @@ impl OpenRequest {
         }
 
         for url in request.urls {
+            // Sinter's own scheme is zed:// under its new name.
+            let url = match url.strip_prefix("sinter://") {
+                Some(rest) => format!("zed://{rest}"),
+                None => url,
+            };
             if let Some(server_name) = url.strip_prefix("zed-cli://") {
                 this.kind = Some(OpenRequestKind::CliConnection(connect_to_cli(server_name)?));
             } else if let Some(action_index) = url.strip_prefix("zed-dock-action://") {
@@ -676,18 +681,19 @@ impl OpenListener {
 }
 
 #[cfg(any(target_os = "linux", target_os = "freebsd", target_os = "macos"))]
-pub fn listen_for_cli_connections(opener: OpenListener) -> Result<()> {
-    use release_channel::RELEASE_CHANNEL_NAME;
+fn bind_url_socket(sock_path: &std::path::Path) -> Result<std::os::unix::net::UnixDatagram> {
     use std::os::unix::net::UnixDatagram;
-
-    let sock_path = paths::data_dir().join(format!("zed-{}.sock", *RELEASE_CHANNEL_NAME));
     // remove the socket if the process listening on it has died
-    if let Err(e) = UnixDatagram::unbound()?.connect(&sock_path)
+    if let Err(e) = UnixDatagram::unbound()?.connect(sock_path)
         && e.kind() == std::io::ErrorKind::ConnectionRefused
     {
-        std::fs::remove_file(&sock_path)?;
+        std::fs::remove_file(sock_path)?;
     }
-    let listener = UnixDatagram::bind(&sock_path)?;
+    Ok(UnixDatagram::bind(sock_path)?)
+}
+
+#[cfg(any(target_os = "linux", target_os = "freebsd", target_os = "macos"))]
+fn spawn_url_listener(listener: std::os::unix::net::UnixDatagram, opener: OpenListener) {
     thread::spawn(move || {
         let mut buf = [0u8; 1024];
         while let Ok(len) = listener.recv(&mut buf) {
@@ -698,6 +704,26 @@ pub fn listen_for_cli_connections(opener: OpenListener) -> Result<()> {
             });
         }
     });
+}
+
+#[cfg(any(target_os = "linux", target_os = "freebsd", target_os = "macos"))]
+pub fn listen_for_cli_connections(opener: OpenListener) -> Result<()> {
+    use release_channel::RELEASE_CHANNEL_NAME;
+
+    let sock_path = paths::data_dir().join("sinter.sock");
+    let listener = bind_url_socket(&sock_path)?;
+    spawn_url_listener(listener, opener.clone());
+    // Where Zed Dev listened, for callers from before the rename (arcoscope
+    // sends zed://arcoscope/... there). Taken only when nothing serves it.
+    if let Some(legacy) = paths::legacy_data_dir() {
+        let legacy_path = legacy.join(format!("zed-{}.sock", *RELEASE_CHANNEL_NAME));
+        if legacy.is_dir() {
+            match bind_url_socket(&legacy_path) {
+                Ok(listener) => spawn_url_listener(listener, opener),
+                Err(error) => log::warn!("not listening on {}: {error}", legacy_path.display()),
+            }
+        }
+    }
     Ok(())
 }
 

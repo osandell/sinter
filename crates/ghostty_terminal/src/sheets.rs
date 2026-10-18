@@ -141,19 +141,19 @@ pub unsafe fn remind_full_disk_access(window: id) {
             msg_send![bundle, bundlePath]
         };
         let app_path =
-            ns_string_to_string(app_path).unwrap_or_else(|| "/Applications/Zed Dev.app".into());
+            ns_string_to_string(app_path).unwrap_or_else(|| "/Applications/Sinter.app".into());
         let alert: id = msg_send![class!(NSAlert), alloc];
         let alert: id = msg_send![alert, init];
         let _: () = msg_send![alert, setAlertStyle: 0u64];
         let _: () =
-            msg_send![alert, setMessageText: ns_string("Zed Dev is missing Full Disk Access")];
+            msg_send![alert, setMessageText: ns_string("Sinter is missing Full Disk Access")];
         let text = format!(
-            "Commands run in the terminal inherit Zed Dev's permissions. Without Full Disk Access \
+            "Commands run in the terminal inherit Sinter's permissions. Without Full Disk Access \
              the 1Password CLI cannot reach the desktop app and reports \"No accounts configured\", \
              so anything resolving secrets through `op` fails: ansible-vault, SMB mounts, API tokens.\n\n\
              Add {app_path} under Full Disk Access. If it is already listed, remove it with the \
              minus (-) button and add it again: the entry is tied to the app's code signature. \
-             Then quit Zed Dev with Cmd+Q and relaunch; a running process keeps the old grants."
+             Then quit Sinter with Cmd+Q and relaunch; a running process keeps the old grants."
         );
         let _: () = msg_send![alert, setInformativeText: ns_string(&text)];
         let _: id = msg_send![alert, addButtonWithTitle: ns_string("Open Settings")];

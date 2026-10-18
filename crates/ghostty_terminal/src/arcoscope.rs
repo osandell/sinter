@@ -50,11 +50,38 @@ fn runtime_path(real: &str, name: &str) -> PathBuf {
     }
 }
 
-fn control_socket_path() -> PathBuf {
-    runtime_path(
-        "/tmp/ghostty-arcoscope-control.sock",
-        "ghostty-arcoscope-control.sock",
-    )
+/// Sinter's control socket, and the path it had as Zed Dev, which arcoscope
+/// builds from before the rename still dial.
+fn control_socket_paths() -> [PathBuf; 2] {
+    [
+        runtime_path("/tmp/sinter-control.sock", "sinter-control.sock"),
+        runtime_path(
+            "/tmp/ghostty-arcoscope-control.sock",
+            "ghostty-arcoscope-control.sock",
+        ),
+    ]
+}
+
+fn bind_control_socket(path: &Path) -> Option<UnixListener> {
+    // Another live instance answers already: leave it the socket.
+    if UnixStream::connect(path).is_ok() {
+        log::warn!(
+            "{} is served by another process; not taking it",
+            path.display()
+        );
+        return None;
+    }
+    std::fs::remove_file(path).ok();
+    let listener = match UnixListener::bind(path) {
+        Ok(listener) => listener,
+        Err(error) => {
+            log::error!("could not bind {}: {error}", path.display());
+            return None;
+        }
+    };
+    use std::os::unix::fs::PermissionsExt as _;
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600)).ok();
+    Some(listener)
 }
 
 fn daemon_socket_path() -> PathBuf {
@@ -554,30 +581,18 @@ struct ControlRequest {
 }
 
 fn start_control_server(cx: &mut App) {
-    let path = control_socket_path();
-    // Another live instance answers already: leave it the socket.
-    if UnixStream::connect(&path).is_ok() {
-        log::warn!(
-            "{} is served by another process; not taking it",
-            path.display()
-        );
+    let listeners: Vec<UnixListener> = control_socket_paths()
+        .iter()
+        .filter_map(|path| bind_control_socket(path))
+        .collect();
+    if listeners.is_empty() {
         return;
-    }
-    std::fs::remove_file(&path).ok();
-    let listener = match UnixListener::bind(&path) {
-        Ok(listener) => listener,
-        Err(error) => {
-            log::error!("could not bind {}: {error}", path.display());
-            return;
-        }
-    };
-    {
-        use std::os::unix::fs::PermissionsExt as _;
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).ok();
     }
 
     let (requests_tx, mut requests_rx) = mpsc::unbounded::<ControlRequest>();
-    let spawned = std::thread::Builder::new()
+    for listener in listeners {
+        let requests_tx = requests_tx.clone();
+        let spawned = std::thread::Builder::new()
         .name("arcoscope-control".into())
         .spawn(move || {
             for stream in listener.incoming() {
@@ -607,9 +622,9 @@ fn start_control_server(cx: &mut App) {
                 stream.write_all(format!("{reply}\n").as_bytes()).ok();
             }
         });
-    if let Err(error) = spawned {
-        log::error!("could not start the arcoscope control thread: {error}");
-        return;
+        if let Err(error) = spawned {
+            log::error!("could not start the arcoscope control thread: {error}");
+        }
     }
 
     cx.spawn(async move |cx| {

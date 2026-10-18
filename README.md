@@ -1,3 +1,20 @@
+# Sinter
+
+Sinter is the editor and terminal of [Arcoscope](https://github.com/osandell/arcoscope):
+one app that fuses a code editor and a terminal, each project in one window
+with its terminal tabs beside the editor.
+
+Sinter is based on [Zed](https://github.com/zed-industries/zed), by Zed
+Industries, and [Ghostty](https://github.com/ghostty-org/ghostty), by
+Mitchell Hashimoto and contributors. It is an independent fork, not made or
+endorsed by either project. Zed's code is under the licenses in
+`LICENSE-GPL` and `LICENSE-APACHE`, which Sinter keeps
+(the app as a whole is GPL); Ghostty's is under the MIT license.
+
+Zed's original README follows.
+
+---
+
 # Zed
 
 [![Zed](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/zed-industries/zed/main/assets/badge/v0.json)](https://zed.dev)

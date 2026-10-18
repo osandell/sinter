@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- Sinter's icon, in the style of the other Arcoscope apps (Postbox,
+       TalkMill, Columbus): a flat rounded square, 902 px with a 203 px
+       corner on a 1024 canvas, and the mark in their cream. The mark is
+       sintering: loose grains on top, pressed together in the middle,
+       fused into one solid piece at the bottom. render.sh makes the PNGs. -->
+  <rect x="61" y="61" width="902" height="902" rx="203" ry="203" fill="#e6814f"/>
+  <g fill="#fef7e8">
+    <circle cx="347" cy="318" r="40"/>
+    <circle cx="457" cy="318" r="40"/>
+    <circle cx="567" cy="318" r="40"/>
+    <circle cx="677" cy="318" r="40"/>
+    <circle cx="352" cy="458" r="58"/>
+    <circle cx="455" cy="458" r="58"/>
+    <circle cx="569" cy="458" r="58"/>
+    <circle cx="672" cy="458" r="58"/>
+    <rect x="294" y="574" width="436" height="132" rx="48" ry="48"/>
+  </g>
+</svg>
