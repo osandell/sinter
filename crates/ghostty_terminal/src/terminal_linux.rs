@@ -2378,6 +2378,12 @@ const DEFAULT_KEYBINDS: &[(&str, &str)] = &[
     ("super+c", "copy_to_clipboard"),
     ("super+v", "paste_from_clipboard"),
     ("super+shift+v", "paste_from_selection"),
+    // A plain keyboard (before arcoscope's key map is on, or without it):
+    // paste as everywhere else on Linux and Windows, copy as in GNOME's
+    // terminal. Ctrl+C stays the shell's interrupt.
+    ("ctrl+v", "paste_from_clipboard"),
+    ("ctrl+shift+v", "paste_from_clipboard"),
+    ("ctrl+shift+c", "copy_to_clipboard"),
     ("super+a", "select_all"),
     ("super+k", "clear_screen"),
     ("super+n", "new_window"),
