@@ -9,7 +9,7 @@ use gpui::{
     AnyElement, App, AppContext as _, Axis, Bounds, ClickEvent, Context, DismissEvent, Entity,
     EntityId, FocusHandle, Focusable, Hsla, InteractiveElement, IntoElement, MouseButton,
     MouseDownEvent, MouseMoveEvent, MouseUpEvent, ParentElement, Pixels, PromptLevel, Render, Rgba,
-    SharedString, StatefulInteractiveElement, Styled, Subscription, WeakEntity, Window, canvas,
+    SharedString, StatefulInteractiveElement, Styled, Subscription, Task, WeakEntity, Window, canvas,
     div, img, prelude::FluentBuilder, px, rgb,
 };
 use project::Project;
@@ -408,6 +408,9 @@ pub struct TerminalColumn {
     close_confirm: Option<CloseConfirm>,
     /// The blocked note being edited, hung under its tab.
     blocked_note: Option<BlockedNote>,
+    /// Paging a full-screen terminal app (Claude Code's fullscreen TUI) back
+    /// to a topic's prompt, after a step with the session band's chevrons.
+    topic_scroll: Option<Task<()>>,
     command_palette: Option<(Entity<GhosttyCommandPalette>, Subscription)>,
     /// arcoscope's fullscreen for this worktree: the side with the keyboard takes
     /// the whole width.
@@ -498,6 +501,7 @@ impl TerminalColumn {
             worktree_picker: None,
             close_confirm: None,
             blocked_note: None,
+            topic_scroll: None,
             command_palette: None,
             fullscreen: false,
             terminal_side: false,
@@ -2639,8 +2643,12 @@ impl TerminalColumn {
             .topic_shown
             .and_then(|index| topics.get(index))
             .map(|entry| entry.prompt.to_string());
-        if let Some(terminal) = tab.focused_terminal() {
-            scroll_to_prompt(terminal.read(cx), prompt.as_deref());
+        let terminal = tab.focused_terminal();
+        self.topic_scroll = None;
+        if let Some(terminal) = terminal {
+            if !scroll_to_prompt(terminal.read(cx), prompt.as_deref()) {
+                self.topic_scroll = Some(page_to_prompt(terminal, prompt, cx));
+            }
         }
         cx.notify();
     }
@@ -2654,12 +2662,14 @@ impl TerminalColumn {
             .unwrap_or_default();
         // arcoscope's topic comes from the first prompt, which a fork shares with
         // its parent; a name the session was given says what it is about.
+        let topic_count = info.topics.len();
+        // Once the work has moved on to a second topic, the topics say what it
+        // is about now, over a name given at the start.
         let topic = tab
-            .filter(|tab| tab.claude_title_custom)
+            .filter(|tab| tab.claude_title_custom && topic_count < 2)
             .and_then(|tab| tab.claude_title.clone())
             .or(info.topic.clone())
             .unwrap_or_default();
-        let topic_count = info.topics.len();
         let shown = tab
             .and_then(|tab| tab.topic_shown)
             .filter(|index| *index + 1 < topic_count);
@@ -3136,26 +3146,92 @@ fn prompt_line_from_end(scrollback: &str, prompt: &str) -> Option<usize> {
 const PROMPT_SEARCH_LINES: usize = 200_000;
 
 /// Scrolls `terminal` so the line where `prompt` begins sits near the top of
-/// the view; to the top when it is no longer there; to the bottom for None.
-fn scroll_to_prompt(terminal: &GhosttyTerminal, prompt: Option<&str>) {
+/// the view, to the bottom for None. False when the terminal has no history
+/// of its own to scroll (a full-screen app draws on the alternate screen, as
+/// Claude Code's fullscreen TUI does): `page_to_prompt` pages the app then.
+fn scroll_to_prompt(terminal: &GhosttyTerminal, prompt: Option<&str>) -> bool {
+    let rows = terminal.grid().map_or(24, |(rows, ..)| rows as usize);
+    let Some((text, _)) = terminal.scrollback(PROMPT_SEARCH_LINES) else {
+        return false;
+    };
+    // Only the screen itself: nothing above it to scroll to.
+    if text.split('\n').count() <= rows + 1 {
+        return false;
+    }
     let Some(prompt) = prompt else {
         terminal.binding_action("scroll_to_bottom");
-        return;
+        return true;
     };
-    let from_end = terminal
-        .scrollback(PROMPT_SEARCH_LINES)
-        .and_then(|(text, _)| prompt_line_from_end(&text, prompt));
-    let Some(from_end) = from_end else {
+    let Some(from_end) = prompt_line_from_end(&text, prompt) else {
         terminal.binding_action("scroll_to_top");
-        return;
+        return true;
     };
-    let rows = terminal.grid().map_or(24, |(rows, ..)| rows as usize);
     terminal.binding_action("scroll_to_bottom");
     // From the bottom, the line is `from_end` up; two rows of air above it.
     let up = (from_end + 2).saturating_sub(rows);
     if up > 0 {
         terminal.binding_action(&format!("scroll_page_lines:-{up}"));
     }
+    true
+}
+
+/// Keys Claude Code's fullscreen TUI scrolls its conversation with: PgUp half
+/// a screen, Ctrl+End back to the latest message, Ctrl+Home to the start.
+const PAGE_UP: &str = "text:\\x1b[5~";
+const TO_END: &str = "text:\\x1b[1;5F";
+const TO_START: &str = "text:\\x1b[1;5H";
+/// Steps of PgUp before giving up and going to the start.
+const MAX_PAGES: usize = 400;
+/// What the app needs to redraw after a key.
+const PAGE_SETTLE: std::time::Duration = std::time::Duration::from_millis(60);
+
+/// The visible screen as one folded line.
+fn screen_text(terminal: &GhosttyTerminal) -> String {
+    let Some((rows, _, _, columns)) = terminal.grid() else {
+        return String::new();
+    };
+    let lines: Vec<String> = (0..rows)
+        .filter_map(|row| terminal.read_viewport_row(row, columns).map(|(text, _, _)| text))
+        .collect();
+    folded(&lines.join(" "))
+}
+
+/// A full-screen app: back to the latest message for None, else from there
+/// up a page at a time until the prompt's start shows, or to the start when
+/// the conversation no longer has it.
+fn page_to_prompt(terminal: Entity<GhosttyTerminal>, prompt: Option<String>, cx: &mut Context<TerminalColumn>) -> Task<()> {
+    terminal.read(cx).binding_action(TO_END);
+    let Some(prompt) = prompt else {
+        return Task::ready(());
+    };
+    let probe: String = folded(&prompt).chars().take(PROMPT_PROBE_CHARS).collect();
+    cx.spawn(async move |_, cx| {
+        if probe.is_empty() {
+            terminal.read_with(cx, |terminal, _| terminal.binding_action(TO_START));
+            return;
+        }
+        let mut last = String::new();
+        let mut unchanged = 0;
+        for _ in 0..MAX_PAGES {
+            cx.background_executor().timer(PAGE_SETTLE).await;
+            let screen = terminal.read_with(cx, |terminal, _| screen_text(terminal));
+            if screen.contains(&probe) {
+                return;
+            }
+            // The same screen twice after a page up: the start is reached.
+            if screen == last {
+                unchanged += 1;
+                if unchanged >= 2 {
+                    return;
+                }
+            } else {
+                unchanged = 0;
+            }
+            last = screen;
+            terminal.read_with(cx, |terminal, _| terminal.binding_action(PAGE_UP));
+        }
+        terminal.read_with(cx, |terminal, _| terminal.binding_action(TO_START));
+    })
 }
 
 #[cfg(test)]
