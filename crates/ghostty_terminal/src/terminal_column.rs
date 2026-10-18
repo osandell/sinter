@@ -30,7 +30,7 @@ use crate::ffi;
 /// How long focus has to stay out of every terminal column before the editor
 /// side is reported to arcoscope.
 const FOCUS_OUT_SETTLE: std::time::Duration = std::time::Duration::from_millis(50);
-use ui::{ActiveTheme as _, ButtonCommon as _, Clickable as _, StyledExt as _};
+use ui::{ActiveTheme as _, ButtonCommon as _, Clickable as _, Disableable as _, StyledExt as _};
 
 const BAR_HEIGHT: f32 = 40.;
 /// A tab's two lines, the title (with its 16px status mark) and the worktree
@@ -58,7 +58,6 @@ const LAMP_QUESTION: u32 = 0xc678dd;
 const LAMP_DONE: u32 = 0xb8bb26;
 const LAMP_IDLE: u32 = 0x928374;
 const LAMP_BACKGROUND: u32 = 0x83a598;
-const LAMP_BLOCKED: u32 = 0xfb4934;
 
 /// The ink arcoscope's bar draws its Claude marks in under a vector theme
 /// (MistPalette.ink): the running gear, the idle robot head, the done check and
@@ -328,6 +327,10 @@ pub struct TerminalTab {
     /// The session's parent when it is a fork, looked up once per session
     /// (the session id it was looked up for, and what was found).
     pub fork_origin: Option<(String, Option<crate::session_activity::ForkOrigin>)>,
+    /// The band shows this earlier topic of the session (an index into its
+    /// `topics`) instead of the current one, after a step back with its
+    /// chevrons; None is the live topic.
+    pub topic_shown: Option<usize>,
 }
 
 impl TerminalTab {
@@ -741,6 +744,7 @@ impl TerminalColumn {
             worktree_path: None,
             session_info: None,
             fork_origin: None,
+            topic_shown: None,
         });
         Some(id)
     }
@@ -1959,6 +1963,9 @@ impl TerminalColumn {
         } else {
             (LAMP_WORKING, LAMP_DONE)
         };
+        // A blocked tab is not an alarm: its mark is in the neutral ink the
+        // other marks have (the idle gear's grey without a vector skin).
+        let blocked = if vector { ink } else { LAMP_IDLE };
         let spinning = |window: &mut Window| {
             // Keep animating while a gear turns.
             window.request_animation_frame();
@@ -2061,7 +2068,7 @@ impl TerminalColumn {
                     .items_center()
                     .justify_center()
                     .children(bitmap_element(graphics::prohibited_mark(
-                        rgb(LAMP_BLOCKED),
+                        rgb(blocked),
                         10.,
                         scale,
                     )))
@@ -2073,7 +2080,7 @@ impl TerminalColumn {
                                 .left(px(1.))
                                 .size(px(14.))
                                 .border_1()
-                                .border_color(rgb(LAMP_BLOCKED)),
+                                .border_color(rgb(blocked)),
                         )
                     })
                     .into_any_element(),
@@ -2605,7 +2612,40 @@ impl TerminalColumn {
     /// wants. The band is always there, empty until arcoscope has summarized the
     /// session: the terminal keeps one height, so the band showing up does not
     /// resize it and move Claude's prompt.
-    fn render_session_band(&self, palette: &Palette, cx: &App) -> Option<AnyElement> {
+    /// Steps the session band to the previous or next of the session's
+    /// topics, and scrolls the terminal to where that topic's prompt is (the
+    /// top when the history no longer has it, the bottom back at the live one).
+    fn step_topic(&mut self, forward: bool, cx: &mut Context<Self>) {
+        let Some(tab) = self.tabs.get_mut(self.selected) else {
+            return;
+        };
+        let topics = tab
+            .session_info
+            .as_ref()
+            .map(|info| info.topics.clone())
+            .unwrap_or_default();
+        if topics.len() < 2 {
+            return;
+        }
+        let last = topics.len() - 1;
+        let current = tab.topic_shown.unwrap_or(last);
+        let next = if forward {
+            (current + 1).min(last)
+        } else {
+            current.saturating_sub(1)
+        };
+        tab.topic_shown = (next < last).then_some(next);
+        let prompt = tab
+            .topic_shown
+            .and_then(|index| topics.get(index))
+            .map(|entry| entry.prompt.to_string());
+        if let Some(terminal) = tab.focused_terminal() {
+            scroll_to_prompt(terminal.read(cx), prompt.as_deref());
+        }
+        cx.notify();
+    }
+
+    fn render_session_band(&self, palette: &Palette, cx: &mut Context<Self>) -> Option<AnyElement> {
         let body_size = crate::runtime::terminal_font_size();
         let body_line = (body_size * 1.3).round();
         let tab = self.tabs.get(self.selected).filter(|tab| tab.claude_present);
@@ -2619,6 +2659,62 @@ impl TerminalColumn {
             .and_then(|tab| tab.claude_title.clone())
             .or(info.topic.clone())
             .unwrap_or_default();
+        let topic_count = info.topics.len();
+        let shown = tab
+            .and_then(|tab| tab.topic_shown)
+            .filter(|index| *index + 1 < topic_count);
+        // An earlier topic: its own title, and the prompt that began it where
+        // the live line goes.
+        let (topic, body) = match shown.and_then(|index| info.topics.get(index)) {
+            Some(entry) => (
+                entry.topic.clone(),
+                SharedString::from(format!("\u{21b6} {}", entry.prompt)),
+            ),
+            None => (topic, info.now.clone().unwrap_or_default()),
+        };
+        let title_color = if shown.is_some() {
+            palette.inactive_text
+        } else {
+            palette.band_title
+        };
+        let topic_nav = (topic_count > 1).then(|| {
+            let position = shown.map_or(topic_count, |index| index + 1);
+            div()
+                .flex_none()
+                .flex()
+                .items_center()
+                .gap(px(2.))
+                .child(
+                    ui::IconButton::new("ghostty-topic-back", ui::IconName::ChevronLeft)
+                        .shape(ui::IconButtonShape::Square)
+                        .icon_color(ui::Color::Muted)
+                        .size(ui::ButtonSize::None)
+                        .icon_size(ui::IconSize::Small)
+                        .disabled(position <= 1)
+                        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                            cx.stop_propagation();
+                            this.step_topic(false, cx);
+                        })),
+                )
+                .child(
+                    div()
+                        .text_size(px(11.))
+                        .text_color(palette.inactive_text)
+                        .child(format!("{position}/{topic_count}")),
+                )
+                .child(
+                    ui::IconButton::new("ghostty-topic-forward", ui::IconName::ChevronRight)
+                        .shape(ui::IconButtonShape::Square)
+                        .icon_color(ui::Color::Muted)
+                        .size(ui::ButtonSize::None)
+                        .icon_size(ui::IconSize::Small)
+                        .disabled(position >= topic_count)
+                        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                            cx.stop_propagation();
+                            this.step_topic(true, cx);
+                        })),
+                )
+        });
         let fork_origin = tab
             .and_then(|tab| tab.fork_origin.as_ref())
             .and_then(|(_, origin)| origin.clone());
@@ -2648,13 +2744,22 @@ impl TerminalColumn {
                             div()
                                 .w_full()
                                 .h(px(SESSION_BAND_LINE))
-                                .text_size(px(12.))
-                                .line_height(px(SESSION_BAND_LINE))
-                                .truncate()
-                                .font_weight(gpui::FontWeight::SEMIBOLD)
-                                .text_color(palette.band_title)
+                                .flex()
+                                .items_center()
+                                .gap(px(8.))
                                 .when(fork_origin.is_some(), |this| this.pr(px(20.)))
-                                .child(topic),
+                                .child(
+                                    div()
+                                        .flex_1()
+                                        .min_w_0()
+                                        .text_size(px(12.))
+                                        .line_height(px(SESSION_BAND_LINE))
+                                        .truncate()
+                                        .font_weight(gpui::FontWeight::SEMIBOLD)
+                                        .text_color(title_color)
+                                        .child(topic),
+                                )
+                                .children(topic_nav),
                         )
                         .when_some(fork_origin, |this, origin| {
                             let parent = format!(
@@ -2712,7 +2817,7 @@ impl TerminalColumn {
                                 .overflow_hidden()
                                 .line_clamp(3)
                                 .text_color(palette.inactive_text)
-                                .child(info.now.clone().unwrap_or_default()),
+                                .child(body),
                         ),
                 )
                 .into_any_element(),
@@ -3002,5 +3107,66 @@ impl Render for TerminalColumn {
                     this.dragging_divider = None;
                 }),
             )
+    }
+}
+
+/// Whitespace collapsed and lowercased, for finding a prompt in the scrollback
+/// however the terminal wrapped it.
+fn folded(text: &str) -> String {
+    text.split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase()
+}
+
+/// How much of a prompt's start is looked for: the first line a terminal
+/// shows of it, before it wraps.
+const PROMPT_PROBE_CHARS: usize = 24;
+
+/// The scrollback line where `prompt` begins, counted from the end, if the
+/// scrollback still has it (the first time it appears).
+fn prompt_line_from_end(scrollback: &str, prompt: &str) -> Option<usize> {
+    let probe: String = folded(prompt).chars().take(PROMPT_PROBE_CHARS).collect();
+    if probe.is_empty() {
+        return None;
+    }
+    let lines: Vec<&str> = scrollback.split('\n').collect();
+    let index = lines.iter().position(|line| folded(line).contains(&probe))?;
+    Some(lines.len() - index)
+}
+
+/// Lines of scrollback searched for a prompt.
+const PROMPT_SEARCH_LINES: usize = 200_000;
+
+/// Scrolls `terminal` so the line where `prompt` begins sits near the top of
+/// the view; to the top when it is no longer there; to the bottom for None.
+fn scroll_to_prompt(terminal: &GhosttyTerminal, prompt: Option<&str>) {
+    let Some(prompt) = prompt else {
+        terminal.binding_action("scroll_to_bottom");
+        return;
+    };
+    let from_end = terminal
+        .scrollback(PROMPT_SEARCH_LINES)
+        .and_then(|(text, _)| prompt_line_from_end(&text, prompt));
+    let Some(from_end) = from_end else {
+        terminal.binding_action("scroll_to_top");
+        return;
+    };
+    let rows = terminal.grid().map_or(24, |(rows, ..)| rows as usize);
+    terminal.binding_action("scroll_to_bottom");
+    // From the bottom, the line is `from_end` up; two rows of air above it.
+    let up = (from_end + 2).saturating_sub(rows);
+    if up > 0 {
+        terminal.binding_action(&format!("scroll_page_lines:-{up}"));
+    }
+}
+
+#[cfg(test)]
+mod topic_scroll_tests {
+    use super::*;
+
+    #[test]
+    fn finds_a_wrapped_prompt_from_the_end() {
+        let scrollback = "one\n> Make the BACKGROUND image\n  softer please\nreply\nlast";
+        assert_eq!(prompt_line_from_end(scrollback, "make the background image softer please"), Some(4));
+        assert_eq!(prompt_line_from_end(scrollback, "something else entirely here"), None);
+        assert_eq!(prompt_line_from_end(scrollback, "   "), None);
     }
 }

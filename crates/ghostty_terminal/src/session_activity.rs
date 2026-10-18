@@ -7,9 +7,11 @@
 //! {"session": "...", "topic": "...", "line": "...", "now": "...", "status": "..."}
 //! ```
 //!
-//! `topic` comes from the session's first prompt and does not change; `now` is
-//! what is going on at the moment, or what Claude's last reply wants once the
-//! turn is over. Drawn as the band under the terminal (`render_session_band`).
+//! `topic` is what the session is about at the moment (a new one when the work
+//! moves on), `topics` every topic so far, oldest first, each with the start of
+//! the prompt that began it; `now` is what is going on at the moment, or what
+//! Claude's last reply wants once the turn is over. Drawn as the band under the
+//! terminal (`render_session_band`), whose chevrons step through `topics`.
 
 use gpui::SharedString;
 use serde::Deserialize;
@@ -18,6 +20,13 @@ use serde::Deserialize;
 pub struct SessionInfo {
     pub topic: Option<SharedString>,
     pub now: Option<SharedString>,
+    pub topics: Vec<TopicEntry>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct TopicEntry {
+    pub topic: SharedString,
+    pub prompt: SharedString,
 }
 
 impl SessionInfo {
@@ -30,6 +39,15 @@ impl SessionInfo {
 struct Entry {
     topic: Option<String>,
     now: Option<String>,
+    #[serde(default)]
+    topics: Vec<TopicRecord>,
+}
+
+#[derive(Deserialize)]
+struct TopicRecord {
+    topic: Option<String>,
+    #[serde(default)]
+    prompt: Option<String>,
 }
 
 /// The session's file, or None when arcoscope has not written one (yet).
@@ -44,9 +62,20 @@ pub fn read(session: &str) -> Option<SessionInfo> {
             .filter(|s| !s.is_empty())
             .map(SharedString::from)
     };
+    let topics = entry
+        .topics
+        .into_iter()
+        .filter_map(|record| {
+            Some(TopicEntry {
+                topic: clean(record.topic)?,
+                prompt: clean(record.prompt).unwrap_or_default(),
+            })
+        })
+        .collect();
     let info = SessionInfo {
         topic: clean(entry.topic),
         now: clean(entry.now),
+        topics,
     };
     (!info.is_empty()).then_some(info)
 }
