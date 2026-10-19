@@ -8029,8 +8029,11 @@ impl Workspace {
             // border so the seam over the dock is seamless.
             if position == DockPosition::Right {
                 let tab_bar_height = ui::Tab::container_height(cx);
-                let strip_background =
-                    ui::arcoscope_bar_background(window, cx.theme().colors().tab_bar_background, cx);
+                let strip_background = ui::arcoscope_bar_background(
+                    window,
+                    cx.theme().colors().tab_bar_background,
+                    cx,
+                );
                 // Same fill and bottom line as the tab bar in either theme.
                 let amiga = ui::arcoscope_amiga(cx);
                 let strip_fill: gpui::Background = if amiga {
@@ -8816,12 +8819,30 @@ impl Render for Workspace {
         // A skin may frame the terminal column and the editor side as two windows
         // of their own: `terminal_window` round the one, `editor_window` round the
         // other, each padded in by its surface.
+        // Alone in the window, a side keeps the outer margin the other side has
+        // there in the split view instead of its seam padding, so fullscreen has
+        // the same margins on both edges as the split.
+        let terminal_alone = self.leading_column.is_some() && layout == LeadingColumnLayout::Full;
+        let editor_alone = self.leading_column.is_none() || layout == LeadingColumnLayout::Hidden;
         let framed = |this: Div, surface: &str| {
+            let padding = ui::arcoscope_skin_padding(surface, cx).map(|mut padding| {
+                if surface == "terminal_window" && terminal_alone {
+                    if let Some([_, right, _, _]) = ui::arcoscope_skin_padding("editor_window", cx)
+                    {
+                        padding[1] = right;
+                    }
+                } else if surface == "editor_window" && editor_alone {
+                    if let Some([_, _, _, left]) = ui::arcoscope_skin_padding("terminal_window", cx)
+                    {
+                        padding[3] = left;
+                    }
+                }
+                padding
+            });
             this.relative()
-                .when_some(
-                    ui::arcoscope_skin_padding(surface, cx),
-                    |this, [top, right, bottom, left]| this.pt(top).pr(right).pb(bottom).pl(left),
-                )
+                .when_some(padding, |this, [top, right, bottom, left]| {
+                    this.pt(top).pr(right).pb(bottom).pl(left)
+                })
                 .children(ui::arcoscope_skin_surface(surface, cx))
         };
         let leading_column = self.leading_column.clone().and_then(|column| match layout {
