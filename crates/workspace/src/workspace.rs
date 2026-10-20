@@ -8819,31 +8819,38 @@ impl Render for Workspace {
         // A skin may frame the terminal column and the editor side as two windows
         // of their own: `terminal_window` round the one, `editor_window` round the
         // other, each padded in by its surface.
-        // Alone in the window, a side keeps the outer margin the other side has
-        // there in the split view instead of its seam padding, so fullscreen has
-        // the same margins on both edges as the split.
+        // Alone in the window, a side is framed on its seam edge the way the other
+        // side frames the window's edge there in the split view (padding and the
+        // drawn frame both), so fullscreen has the same margins on both edges as
+        // the split. Padding alone is not enough: the frame is open on the seam
+        // side, so its fill would still run to the window's edge.
         let terminal_alone = self.leading_column.is_some() && layout == LeadingColumnLayout::Full;
         let editor_alone = self.leading_column.is_none() || layout == LeadingColumnLayout::Hidden;
         let framed = |this: Div, surface: &str| {
-            let padding = ui::arcoscope_skin_padding(surface, cx).map(|mut padding| {
-                if surface == "terminal_window" && terminal_alone {
-                    if let Some([_, right, _, _]) = ui::arcoscope_skin_padding("editor_window", cx)
-                    {
-                        padding[1] = right;
-                    }
-                } else if surface == "editor_window" && editor_alone {
-                    if let Some([_, _, _, left]) = ui::arcoscope_skin_padding("terminal_window", cx)
-                    {
-                        padding[3] = left;
-                    }
+            let alone = match surface {
+                "terminal_window" if terminal_alone => {
+                    Some(("editor_window", ui::ArcoscopeSkinSeam::Right))
                 }
-                padding
-            });
+                "editor_window" if editor_alone => {
+                    Some(("terminal_window", ui::ArcoscopeSkinSeam::Left))
+                }
+                _ => None,
+            };
+            let (padding, frame) = match alone {
+                Some((neighbour, seam)) => (
+                    ui::arcoscope_skin_padding_alone(surface, neighbour, seam, cx),
+                    ui::arcoscope_skin_surface_alone(surface, neighbour, seam, cx),
+                ),
+                None => (
+                    ui::arcoscope_skin_padding(surface, cx),
+                    ui::arcoscope_skin_surface(surface, cx),
+                ),
+            };
             this.relative()
                 .when_some(padding, |this, [top, right, bottom, left]| {
                     this.pt(top).pr(right).pb(bottom).pl(left)
                 })
-                .children(ui::arcoscope_skin_surface(surface, cx))
+                .children(frame)
         };
         let leading_column = self.leading_column.clone().and_then(|column| match layout {
             LeadingColumnLayout::Beside(width) => Some(

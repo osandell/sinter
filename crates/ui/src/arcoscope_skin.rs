@@ -2,8 +2,7 @@ use std::{collections::BTreeMap, path::Path, sync::Arc};
 
 use gpui::{
     AnyElement, App, BorderStyle, Bounds, BoxShadow, ContentMask, Corners, Edges, Global, Hsla,
-    Pixels,
-    RenderImage, Rgba, Window, canvas, point, px, quad, size,
+    Pixels, RenderImage, Rgba, Window, canvas, point, px, quad, size,
 };
 use image::DynamicImage;
 use serde::Deserialize;
@@ -112,12 +111,14 @@ struct FrameDefinition {
     edge_mode: Option<FillMode>,
 }
 
+#[derive(Clone)]
 struct Sprite {
     image: Arc<RenderImage>,
     width: f32,
     height: f32,
 }
 
+#[derive(Clone)]
 struct Layer {
     inset: [f32; 4],
     fill: Option<Hsla>,
@@ -173,6 +174,7 @@ fn load_layer(layer: &LayerDefinition) -> Result<Layer, String> {
     })
 }
 
+#[derive(Clone)]
 struct LoadedSurface {
     layers: Vec<Layer>,
     fill: Option<Sprite>,
@@ -407,6 +409,93 @@ pub fn arcoscope_skin_padding(name: &str, cx: &App) -> Option<[Pixels; 4]> {
     active_surface(name, cx).map(|surface| surface.padding.map(px))
 }
 
+/// The vertical edge where a framed surface meets its neighbour in the split
+/// view, left open there so the two read as one frame.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ArcoscopeSkinSeam {
+    Left,
+    Right,
+}
+
+/// `surface` with its `seam` edge taken from `neighbour`: padding, layer insets,
+/// border widths and corner radii on that side, and a bitmap frame's column
+/// there. Shown alone in the window, a surface framed as one half of the split
+/// has nothing on its seam side, so its own padding there only moved the
+/// content in while its fill still ran to the window's edge. With the edge the
+/// neighbour has on that side it closes the way the split's outer edge does.
+fn with_neighbour_edge(
+    surface: &LoadedSurface,
+    neighbour: &LoadedSurface,
+    seam: ArcoscopeSkinSeam,
+) -> LoadedSurface {
+    // CSS order for sides (top, right, bottom, left) and corners (top-left,
+    // top-right, bottom-right, bottom-left); frame columns left to right.
+    let (side, corners, column) = match seam {
+        ArcoscopeSkinSeam::Left => (3, [0, 3], 0),
+        ArcoscopeSkinSeam::Right => (1, [1, 2], 2),
+    };
+    let mut closed = surface.clone();
+    closed.padding[side] = neighbour.padding[side];
+    for (layer, other) in closed.layers.iter_mut().zip(&neighbour.layers) {
+        layer.inset[side] = other.inset[side];
+        for corner in corners {
+            layer.radius[corner] = other.radius[corner];
+        }
+        match (&mut layer.border, &other.border) {
+            (Some((_, widths)), Some((_, other_widths))) => widths[side] = other_widths[side],
+            (Some((_, widths)), None) => widths[side] = 0.,
+            _ => {}
+        }
+    }
+    closed.borders[side] = neighbour.borders[side];
+    closed
+        .pieces
+        .retain(|(piece_column, _, _)| *piece_column != column);
+    closed.pieces.extend(
+        neighbour
+            .pieces
+            .iter()
+            .filter(|(piece_column, _, _)| *piece_column == column)
+            .cloned(),
+    );
+    closed
+}
+
+fn alone_surface(
+    name: &str,
+    neighbour: &str,
+    seam: ArcoscopeSkinSeam,
+    cx: &App,
+) -> Option<Arc<LoadedSurface>> {
+    let surface = active_surface(name, cx)?;
+    Some(match active_surface(neighbour, cx) {
+        Some(neighbour) => Arc::new(with_neighbour_edge(&surface, &neighbour, seam)),
+        None => surface,
+    })
+}
+
+/// Padding of `name` when it fills the window alone, its `seam` side taken
+/// from `neighbour` (see `with_neighbour_edge`).
+pub fn arcoscope_skin_padding_alone(
+    name: &str,
+    neighbour: &str,
+    seam: ArcoscopeSkinSeam,
+    cx: &App,
+) -> Option<[Pixels; 4]> {
+    alone_surface(name, neighbour, seam, cx).map(|surface| surface.padding.map(px))
+}
+
+/// `arcoscope_skin_surface` for `name` filling the window alone, its `seam`
+/// side drawn the way `neighbour` draws it.
+pub fn arcoscope_skin_surface_alone(
+    name: &str,
+    neighbour: &str,
+    seam: ArcoscopeSkinSeam,
+    cx: &App,
+) -> Option<AnyElement> {
+    alone_surface(name, neighbour, seam, cx).map(surface_element)
+}
+
 pub fn has_arcoscope_skin(name: &str, cx: &App) -> bool {
     active_surface(name, cx).is_some()
 }
@@ -579,19 +668,20 @@ pub fn arcoscope_skin_surface_variant(
 }
 
 pub fn arcoscope_skin_surface(name: &str, cx: &App) -> Option<AnyElement> {
-    let surface = active_surface(name, cx)?;
-    Some(
-        canvas(
-            |_, _, _| (),
-            move |bounds, (), window, _| {
-                paint_loaded_surface(&surface, bounds, window);
-            },
-        )
-        .absolute()
-        .inset_0()
-        .size_full()
-        .into_any_element(),
+    active_surface(name, cx).map(surface_element)
+}
+
+fn surface_element(surface: Arc<LoadedSurface>) -> AnyElement {
+    canvas(
+        |_, _, _| (),
+        move |bounds, (), window, _| {
+            paint_loaded_surface(&surface, bounds, window);
+        },
     )
+    .absolute()
+    .inset_0()
+    .size_full()
+    .into_any_element()
 }
 
 #[cfg(test)]
@@ -644,6 +734,56 @@ mod tests {
             }
         }
         assert!(skin.surfaces.contains_key("bottom_strip@5"));
+    }
+
+    #[test]
+    fn a_window_alone_closes_its_seam_like_the_split_outer_edge() {
+        let skin = bundled_binding("mist").skin.expect("mist has a skin");
+        let load = |name: &str| {
+            load_surface(&name.to_owned(), &skin.surfaces[name], &skin, None)
+                .expect("vector surface loads")
+                .1
+        };
+        let terminal = load("terminal_window");
+        let editor = load("editor_window");
+
+        let terminal_alone = with_neighbour_edge(&terminal, &editor, ArcoscopeSkinSeam::Right);
+        assert_eq!(terminal_alone.padding[1], editor.padding[1]);
+        assert_eq!(terminal_alone.padding[3], terminal.padding[3]);
+        for (alone, (own, outer)) in terminal_alone
+            .layers
+            .iter()
+            .zip(terminal.layers.iter().zip(&editor.layers))
+        {
+            assert_eq!(alone.inset[1], outer.inset[1]);
+            assert_eq!(alone.inset[3], own.inset[3]);
+            assert_eq!(
+                alone.radius,
+                [
+                    own.radius[0],
+                    outer.radius[1],
+                    outer.radius[2],
+                    own.radius[3]
+                ]
+            );
+            assert_eq!(
+                alone.border.map(|(_, widths)| widths[1]),
+                outer.border.map(|(_, widths)| widths[1])
+            );
+        }
+
+        let editor_alone = with_neighbour_edge(&editor, &terminal, ArcoscopeSkinSeam::Left);
+        assert_eq!(editor_alone.padding[3], terminal.padding[3]);
+        assert_eq!(editor_alone.padding[1], editor.padding[1]);
+        for (alone, outer) in editor_alone.layers.iter().zip(&terminal.layers) {
+            assert_eq!(alone.inset[3], outer.inset[3]);
+            assert_eq!(alone.radius[0], outer.radius[0]);
+            assert_eq!(alone.radius[3], outer.radius[3]);
+            assert_eq!(
+                alone.border.map(|(_, widths)| widths[3]),
+                outer.border.map(|(_, widths)| widths[3])
+            );
+        }
     }
 
     #[test]
