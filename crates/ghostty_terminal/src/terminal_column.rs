@@ -434,7 +434,20 @@ impl TerminalColumn {
         let focus_handle = cx.focus_handle();
         ui::register_arcoscope_terminal_focus(&focus_handle, cx);
         let mut window_subscriptions = vec![
-            cx.observe_window_activation(window, |_, _, cx| cx.notify()),
+            cx.observe_window_activation(window, |this, window, cx| {
+                // Whether the shown column's bars may take the collection
+                // colour hangs on this; logged so a bar that lost its colour
+                // can be traced to the window losing key status or the
+                // keyboard leaving the column.
+                if crate::columns::TerminalColumns::current(cx).is_some_and(|current| current == cx.entity()) {
+                    log::info!(
+                        "arcoscope focus: window active {}, terminal focused {}",
+                        window.is_window_active(),
+                        this.focus_handle.contains_focused(window, cx)
+                    );
+                }
+                cx.notify()
+            }),
             cx.observe_window_appearance(window, |this, window, cx| {
                 this.sync_color_scheme(window, cx);
             }),
@@ -1519,6 +1532,10 @@ impl TerminalColumn {
     }
 
     fn set_terminal_side(&mut self, terminal_side: bool, cx: &mut Context<Self>) {
+        log::info!(
+            "arcoscope focus: keyboard to the {}",
+            if terminal_side { "terminal" } else { "editor" }
+        );
         if self.terminal_side != terminal_side {
             self.terminal_side = terminal_side;
             self.push_layout(cx);

@@ -526,8 +526,15 @@ fn main() {
     // direction (see ArcoscopeCompanion in the Ghostty fork).
     #[cfg(target_os = "macos")]
     app.on_app_activated(|bundle_id, cx| {
-        // Only the frontmost of Zed and Ghostty carries the arcoscope page color.
-        ui::set_arcoscope_app_front(bundle_id.starts_with("dev.zed.Zed"), cx);
+        log::info!("arcoscope focus: app activated {bundle_id}");
+        // Only the frontmost app carries the arcoscope page color. Compared with
+        // this build's own bundle id: since the rename to Sinter it is no longer
+        // `dev.zed.Zed*`, and the old prefix test took every activation of Sinter
+        // itself for another app's, which left the editor's bars neutral.
+        ui::set_arcoscope_app_front(
+            bundle_id == release_channel::RELEASE_CHANNEL.app_id(),
+            cx,
+        );
 
         const GHOSTTY_DEV_BUNDLE_ID: &str = "com.mitchellh.ghostty.dev";
         if bundle_id != GHOSTTY_DEV_BUNDLE_ID {
