@@ -3120,7 +3120,11 @@ impl Render for TerminalColumn {
                 )
                 .with_priority(1)
             }))
-            .child(fill_at(self.bar_width - 1., 0., 1., 10000., palette.line))
+            // The seam to the editor. Alone in the window the column has no seam,
+            // and the line would stand just inside the window frame's own edge.
+            .when(self.layout() != LeadingColumnLayout::Full, |this| {
+                this.child(fill_at(self.bar_width - 1., 0., 1., 10000., palette.line))
+            })
             .on_mouse_move(cx.listener(|this, event: &MouseMoveEvent, _window, cx| {
                 if this.dragging_divider.is_some() {
                     this.drag_divider(event.position, cx);
