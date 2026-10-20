@@ -2535,6 +2535,8 @@ const DEFAULT_KEYBINDS: &[(&str, &str)] = &[
     ("alt+right", "esc:f"),
     // Readline's backward-kill-word (ESC DEL), as on the Mac.
     ("alt+backspace", "text:\\x1b\\x7f"),
+    // The line editor's undo (Ctrl+_), as on the Mac (runtime.rs).
+    ("super+z", "text:\\x1f"),
 ];
 
 /// A trigger in canonical form: modifiers in a fixed order, then the key in

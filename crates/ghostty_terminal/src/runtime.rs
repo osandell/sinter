@@ -335,8 +335,11 @@ pub(crate) fn apply_skin_colors(
 /// sense inside Zed. Closing the last terminal tab leaves an empty column; it
 /// must never quit the editor. Option+Backspace deletes the previous word
 /// (readline's backward-kill-word, ESC DEL) as in other terminals, without
-/// `macos-option-as-alt`.
-const EMBEDDED_OVERRIDES: &str = "quit-after-last-window-closed = false\nkeybind = alt+backspace=text:\\x1b\\x7f";
+/// `macos-option-as-alt`. Cmd+Z sends Ctrl+_ (0x1f), the line editor's undo
+/// (readline, zsh, Claude Code), instead of Ghostty's undo of a closed tab:
+/// arcoscope's undo key sends Cmd+Z here, since Ctrl+_ itself does not reach
+/// the terminal through its key map.
+const EMBEDDED_OVERRIDES: &str = "quit-after-last-window-closed = false\nkeybind = alt+backspace=text:\\x1b\\x7f\nkeybind = super+z=text:\\x1f";
 
 /// Loads `EMBEDDED_OVERRIDES` on top of the user's files, so they win.
 unsafe fn load_embedded_overrides(config: ffi::ghostty_config_t) {
