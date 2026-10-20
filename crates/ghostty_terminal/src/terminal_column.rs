@@ -2578,7 +2578,19 @@ impl TerminalColumn {
         let width = self.bar_width;
         // The collection's tinted copy while the terminal holds the keyboard,
         // the neutral bitmap otherwise.
-        if let Some(surface) = ui::arcoscope_skin_surface_variant("bottom_strip", palette.page, cx) {
+        // The strip runs along the bottom of the terminal's window frame, so
+        // its corners take the frame's inner curve: the left one always, the
+        // right one too when the column fills the window alone.
+        let alone = (self.layout() == LeadingColumnLayout::Full)
+            .then_some(("editor_window", ui::ArcoscopeSkinSeam::Right));
+        let [_, _, bottom_right, bottom_left] =
+            ui::arcoscope_skin_content_corners("terminal_window", alone, cx);
+        if let Some(surface) = ui::arcoscope_skin_surface_variant_rounded(
+            "bottom_strip",
+            palette.page,
+            [px(0.), px(0.), bottom_right, bottom_left],
+            cx,
+        ) {
             return div()
                 .relative()
                 .w_full()

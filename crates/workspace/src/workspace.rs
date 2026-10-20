@@ -9288,13 +9288,21 @@ impl Render for Workspace {
                         );
                         let band = div().w_full().flex_none().h(px(ARCOSCOPE_STRIP_HEIGHT));
                         if ui::has_arcoscope_skin("bottom_strip", cx) {
+                            // Along the bottom of the editor's window frame: the
+                            // corners take the frame's inner curve, the left one
+                            // too when the editor fills the window alone.
+                            let alone = editor_alone
+                                .then_some(("terminal_window", ui::ArcoscopeSkinSeam::Left));
+                            let [_, _, bottom_right, bottom_left] =
+                                ui::arcoscope_skin_content_corners("editor_window", alone, cx);
                             band.relative()
                                 // The collection's tinted copy on the same terms
                                 // as `strip`: only while the editor holds the
                                 // keyboard, the neutral bitmap otherwise.
-                                .children(ui::arcoscope_skin_surface_variant(
+                                .children(ui::arcoscope_skin_surface_variant_rounded(
                                     "bottom_strip",
                                     ui::arcoscope_bar_page(window, cx),
+                                    [px(0.), px(0.), bottom_right, bottom_left],
                                     cx,
                                 ))
                         } else if ui::arcoscope_amiga(cx) {

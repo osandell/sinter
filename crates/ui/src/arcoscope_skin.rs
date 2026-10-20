@@ -496,6 +496,66 @@ pub fn arcoscope_skin_surface_alone(
     alone_surface(name, neighbour, seam, cx).map(surface_element)
 }
 
+/// Corner radii (top-left, top-right, bottom-right, bottom-left) of the
+/// content box inside a framed surface: its innermost layer's corners, less
+/// how far the padding sits inside that layer, so a fill drawn at the content
+/// box's corner follows the frame's curve instead of poking out square.
+fn content_corners(surface: &LoadedSurface) -> [f32; 4] {
+    let Some(layer) = surface.layers.last() else {
+        return [0.; 4];
+    };
+    // The two sides (CSS order) that meet at each corner.
+    const SIDES: [(usize, usize); 4] = [(0, 3), (0, 1), (2, 1), (2, 3)];
+    std::array::from_fn(|corner| {
+        let (vertical, horizontal) = SIDES[corner];
+        let offset = (surface.padding[vertical] - layer.inset[vertical])
+            .max(surface.padding[horizontal] - layer.inset[horizontal])
+            .max(0.);
+        (layer.radius[corner] - offset).max(0.)
+    })
+}
+
+/// `content_corners` of the window surface `name`, alone in the window
+/// (see `with_neighbour_edge`) when `alone` names its neighbour and seam.
+/// Zero without a skin.
+pub fn arcoscope_skin_content_corners(
+    name: &str,
+    alone: Option<(&str, ArcoscopeSkinSeam)>,
+    cx: &App,
+) -> [Pixels; 4] {
+    let surface = match alone {
+        Some((neighbour, seam)) => alone_surface(name, neighbour, seam, cx),
+        None => active_surface(name, cx),
+    };
+    surface
+        .map(|surface| content_corners(&surface).map(px))
+        .unwrap_or([px(0.); 4])
+}
+
+/// `arcoscope_skin_surface_variant` with each layer's corners rounded at least
+/// to `corners`: a strip along the bottom of a framed window takes the
+/// frame's inner curve (`arcoscope_skin_content_corners`).
+pub fn arcoscope_skin_surface_variant_rounded(
+    name: &str,
+    variant: Option<usize>,
+    corners: [Pixels; 4],
+    cx: &App,
+) -> Option<AnyElement> {
+    let surface = variant
+        .and_then(|variant| active_surface(&format!("{name}@{variant}"), cx))
+        .or_else(|| active_surface(name, cx))?;
+    if corners.iter().all(|corner| *corner <= px(0.)) {
+        return Some(surface_element(surface));
+    }
+    let mut rounded = (*surface).clone();
+    for layer in &mut rounded.layers {
+        for (radius, corner) in layer.radius.iter_mut().zip(corners) {
+            *radius = radius.max(f32::from(corner));
+        }
+    }
+    Some(surface_element(Arc::new(rounded)))
+}
+
 pub fn has_arcoscope_skin(name: &str, cx: &App) -> bool {
     active_surface(name, cx).is_some()
 }
@@ -784,6 +844,25 @@ mod tests {
                 outer.border.map(|(_, widths)| widths[3])
             );
         }
+    }
+
+    #[test]
+    fn content_corners_follow_the_frames_inner_curve() {
+        let skin = bundled_binding("mist").skin.expect("mist has a skin");
+        let load = |name: &str| {
+            load_surface(&name.to_owned(), &skin.surfaces[name], &skin, None)
+                .expect("vector surface loads")
+                .1
+        };
+        let terminal = load("terminal_window");
+        let editor = load("editor_window");
+        // Mist: inner layer radius 6 at inset 6, content padded in by 8.
+        assert_eq!(content_corners(&terminal), [4., 0., 0., 4.]);
+        assert_eq!(content_corners(&editor), [0., 4., 4., 0.]);
+        let terminal_alone = with_neighbour_edge(&terminal, &editor, ArcoscopeSkinSeam::Right);
+        assert_eq!(content_corners(&terminal_alone), [4., 4., 4., 4.]);
+        let editor_alone = with_neighbour_edge(&editor, &terminal, ArcoscopeSkinSeam::Left);
+        assert_eq!(content_corners(&editor_alone), [4., 4., 4., 4.]);
     }
 
     #[test]
