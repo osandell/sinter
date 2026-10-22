@@ -1,0 +1,88 @@
+#!/usr/bin/env bash
+# Builds Sinter.app for a release outside the App Store (Arcoscope's macOS
+# installer ships it): universal (arm64 + x86_64), signed with a Developer
+# ID, hardened runtime, timestamped. No DMG and no notarization: the app is
+# downloaded with curl, which sets no quarantine flag.
+#
+#   script/bundle-mac-release <out dir>
+#
+# Leaves <out dir>/Sinter.app. The identity is SINTER_SIGN_IDENTITY, else
+# the first "Developer ID Application" in the keychain. Needs GhosttyKit
+# (universal) as for script/bundle-mac.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+out=$(cd "${1:?usage: script/bundle-mac-release <out dir>}" && pwd)
+identity=${SINTER_SIGN_IDENTITY:-$(security find-identity -v -p codesigning | sed -n 's/.*"\(Developer ID Application: .*\)"/\1/p' | head -1)}
+[ -n "$identity" ] || { echo "bundle-mac-release: no Developer ID Application identity; set SINTER_SIGN_IDENTITY" >&2; exit 1; }
+targets=(aarch64-apple-darwin x86_64-apple-darwin)
+
+channel=$(<crates/zed/RELEASE_CHANNEL)
+export ZED_RELEASE_CHANNEL=$channel ZED_BUNDLE=true
+# Deal with versions of macOS that don't include libstdc++ headers.
+export CXXFLAGS="-stdlib=libc++"
+
+cargo_bundle_version=$(cargo -q bundle --help 2>&1 | head -n 1 || echo "")
+if [ "$cargo_bundle_version" != "cargo-bundle v0.6.1-zed" ]; then
+    cargo install cargo-bundle --git https://github.com/zed-industries/cargo-bundle.git --branch zed-deploy
+fi
+
+script/generate-licenses
+for t in "${targets[@]}"; do
+    rustup target add "$t" >/dev/null
+    echo "Compiling zed and cli for $t"
+    cargo build --release --package zed --package cli --target "$t"
+done
+
+echo "Creating the application bundle"
+pushd crates/zed >/dev/null
+cp Cargo.toml Cargo.toml.backup
+sed -i.backup "s/package.metadata.bundle-${channel}/package.metadata.bundle/" Cargo.toml
+app_path=$(cargo bundle --release --target "${targets[0]}" --select-workspace-root | xargs)
+mv Cargo.toml.backup Cargo.toml
+popd >/dev/null
+name=$(basename "$app_path")
+app=$out/$name
+rm -rf "$app"
+ditto "$app_path" "$app"
+
+# Both slices of each executable.
+for bin in zed cli; do
+    lipo -create -output "$app/Contents/MacOS/$bin" "target/${targets[0]}/release/$bin" "target/${targets[1]}/release/$bin"
+    # The release profile keeps debug info: not in the download.
+    strip -S -x "$app/Contents/MacOS/$bin"
+done
+
+# As script/bundle-mac: the document icon, the embedded terminal's resources.
+[ -f crates/zed/resources/Document.icns ] && cp crates/zed/resources/Document.icns "$app/Contents/Resources/Document.icns"
+ghostty_share_dir="${GHOSTTY_SHARE_DIR:-../../ghostty-kit/share}"
+if [[ -d "${ghostty_share_dir}/ghostty" && -d "${ghostty_share_dir}/terminfo" ]]; then
+    rm -rf "$app/Contents/Resources/ghostty" "$app/Contents/Resources/terminfo"
+    cp -R "${ghostty_share_dir}/ghostty" "$app/Contents/Resources/ghostty"
+    cp -R "${ghostty_share_dir}/terminfo" "$app/Contents/Resources/terminfo"
+else
+    echo "bundle-mac-release: missing Ghostty resources in ${ghostty_share_dir}; set GHOSTTY_SHARE_DIR" >&2
+    exit 1
+fi
+
+# The bundled git, both architectures (script/bundle-mac's version).
+GIT_VERSION="v2.43.3"
+GIT_VERSION_SHA="fa29823"
+git_tmp=$(mktemp -d)
+trap 'rm -rf "$git_tmp"' EXIT
+for arch in arm64 x64; do
+    mkdir -p "$git_tmp/$arch"
+    curl --silent --fail --location "https://github.com/desktop/dugite-native/releases/download/${GIT_VERSION}/dugite-native-${GIT_VERSION}-${GIT_VERSION_SHA}-macOS-${arch}.tar.gz" | tar -xz -C "$git_tmp/$arch" -f -
+done
+lipo -create -output "$app/Contents/MacOS/git" "$git_tmp/arm64/bin/git" "$git_tmp/x64/bin/git"
+
+# Zed's entitlements without the associated domains, which need Zed's own
+# provisioning profile.
+entitlements=$git_tmp/zed.entitlements
+sed '/com.apple.developer.associated-domains/,+1d' crates/zed/resources/zed.entitlements > "$entitlements"
+sign() { /usr/bin/codesign --force --timestamp --options runtime --sign "$identity" "$@"; }
+sign "$app/Contents/MacOS/cli"
+sign "$app/Contents/MacOS/git"
+sign --entitlements "$entitlements" "$app/Contents/MacOS/zed"
+sign --entitlements "$entitlements" "$app"
+/usr/bin/codesign --verify --deep --strict "$app"
+echo "Built $app"
