@@ -107,6 +107,20 @@ pub unsafe fn confirm_clipboard(
     }
 }
 
+/// Whether the 1Password CLI is installed and has been used on this machine:
+/// the `op` binary where its installers put it, and the config directory it
+/// writes on its first sign-in (`~/.config/op`, or `$OP_CONFIG_DIR`).
+fn op_cli_in_use() -> bool {
+    let installed = ["/usr/local/bin/op", "/opt/homebrew/bin/op"]
+        .iter()
+        .any(|p| std::path::Path::new(p).exists())
+        || paths::home_dir().join(".local/bin/op").exists();
+    let config = std::env::var_os("OP_CONFIG_DIR")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| paths::home_dir().join(".config/op"));
+    installed && config.is_dir()
+}
+
 /// The Ghostty fork's Full Disk Access reminder, for the app the terminals now
 /// run under: without it the 1Password CLI in them cannot reach the desktop
 /// app. Shown as a sheet, at most once an hour.
@@ -120,6 +134,11 @@ pub unsafe fn remind_full_disk_access(window: id) {
     const SETTINGS_URL: &str =
         "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles";
 
+    // Only for someone who uses the 1Password CLI: everyone else has no use
+    // for Full Disk Access here, and the reminder would be a riddle to them.
+    if !op_cli_in_use() {
+        return;
+    }
     let probe = paths::home_dir().join("Library/Application Support/com.apple.TCC/TCC.db");
     if std::fs::File::open(probe).is_ok() {
         return;
