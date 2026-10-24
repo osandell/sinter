@@ -8034,6 +8034,12 @@ impl Workspace {
                     cx.theme().colors().tab_bar_background,
                     cx,
                 );
+                let strip_glow = ui::arcoscope_bar_glow(
+                    window,
+                    cx.theme().colors().tab_bar_background,
+                    cx,
+                )
+                .filter(|_| !ui::has_arcoscope_skin("tab_bar", cx));
                 // Same fill and bottom line as the tab bar in either theme.
                 let amiga = ui::arcoscope_amiga(cx);
                 let strip_fill: gpui::Background = if amiga {
@@ -8059,6 +8065,9 @@ impl Workspace {
                         .h(tab_bar_height)
                         .bg(strip_fill)
                         .children(ui::arcoscope_skin_surface("tab_bar", cx))
+                        .when_some(strip_glow, |this, glow| {
+                            this.child(ui::arcoscope_split_overlay(glow))
+                        })
                         .border_b_1()
                         .border_color(strip_border)
                         .flex()
@@ -9286,6 +9295,11 @@ impl Render for Workspace {
                             cx.theme().colors().tab_bar_background,
                             cx,
                         );
+                        let glow = ui::arcoscope_bar_glow(
+                            window,
+                            cx.theme().colors().tab_bar_background,
+                            cx,
+                        );
                         let band = div().w_full().flex_none().h(px(ARCOSCOPE_STRIP_HEIGHT));
                         if ui::has_arcoscope_skin("bottom_strip", cx) {
                             // Along the bottom of the editor's window frame: the
@@ -9325,8 +9339,15 @@ impl Render for Workspace {
                                         .h_px()
                                         .bg(ui::arcoscope_lighten(strip, 0.08)),
                                 )
+                                .when_some(glow, |this, glow| {
+                                    this.child(ui::arcoscope_split_overlay(glow))
+                                })
                         } else {
-                            band.bg(strip)
+                            band.relative()
+                                .bg(strip)
+                                .when_some(glow, |this, glow| {
+                                    this.child(ui::arcoscope_split_overlay(glow))
+                                })
                         }
                     })
                     .when(hide_editor, |this| this.hidden()),

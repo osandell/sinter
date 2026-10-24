@@ -92,18 +92,39 @@ fn bar_active_base(neutral: Hsla) -> u32 {
 /// moderate so tab-label text stays readable (matches `pageTintAmount`).
 const ARCOSCOPE_PAGE_TINT_AMOUNT: f32 = 0.30;
 
-/// Dark accent color for an arcoscope page index, or `None` if out of range.
-/// Mirrors `pageAccents` in arcoscope's `BarView.swift` and
-/// `ArcoscopePageMonitor.accents` in the Ghostty fork.
+/// Dark accent color for each of arcoscope's six single-colour collections, in
+/// its order (`COLLECTION_COLORS` in arcoscope-core): orange, green, purple,
+/// blue, yellow, pink. Mirrors `ArcoscopePageMonitor.accents` in the Ghostty
+/// fork.
+const ARCOSCOPE_ACCENTS: [u32; 6] = [
+    0xb55512, // dark orange
+    0x3a5f2a, // green
+    0x6e4f9e, // purple
+    0x2e4f6b, // blue
+    0x8a7a1e, // yellow
+    0xa84a78, // pink
+];
+
+/// The collections past the first six carry two of those colours each:
+/// orange and yellow, green and blue, purple and pink.
+const ARCOSCOPE_PAIRS: [(usize, usize); 3] = [(0, 4), (1, 3), (2, 5)];
+
+/// The accent (or two) of an arcoscope page, or `None` if out of range.
+fn arcoscope_page_accents(page: usize) -> Option<(u32, Option<u32>)> {
+    if let Some(accent) = ARCOSCOPE_ACCENTS.get(page) {
+        return Some((*accent, None));
+    }
+    let (first, second) = ARCOSCOPE_PAIRS.get(page - ARCOSCOPE_ACCENTS.len())?;
+    Some((
+        *ARCOSCOPE_ACCENTS.get(*first)?,
+        Some(*ARCOSCOPE_ACCENTS.get(*second)?),
+    ))
+}
+
+/// The single accent standing for a page: the colour itself, or the first of
+/// a pair.
 fn arcoscope_page_accent(page: usize) -> Option<u32> {
-    Some(match page {
-        0 => 0xb55512, // ö  dark orange
-        1 => 0x3a5f2a, // p  green
-        2 => 0xa84a78, // b  pink
-        3 => 0x2e4f6b, // t  blue
-        4 => 0x8a7a1e, // g  yellow
-        _ => return None,
-    })
+    arcoscope_page_accents(page).map(|(accent, _)| accent)
 }
 
 /// Channel-wise lerp of two packed `0xRRGGBB` colors: `amount` of `accent`
@@ -139,17 +160,79 @@ fn editor_holds_arcoscope_focus(window: &Window, cx: &App) -> bool {
 }
 
 /// The active base for the appearance implied by `neutral`, tinted toward the
-/// current page's accent.
+/// current page's accent. For a two-colour page this is the darker of the two
+/// tints, the right half of a bar (`arcoscope_page_glow` is the left).
 pub fn arcoscope_page_tint(neutral: Hsla, cx: &App) -> Hsla {
-    let base = bar_active_base(neutral);
-    match cx
-        .try_global::<ArcoscopePage>()
-        .and_then(|page| page.0)
-        .and_then(arcoscope_page_accent)
-    {
-        Some(accent) => tint(base, accent, ARCOSCOPE_PAGE_TINT_AMOUNT),
-        None => rgb(base).into(),
+    page_tints(neutral, cx).0
+}
+
+/// The lighter tint of a two-colour page, the left half of a bar
+/// (`arcoscope_split_overlay`). `None` for a single-colour page.
+pub fn arcoscope_page_glow(neutral: Hsla, cx: &App) -> Option<Hsla> {
+    page_tints(neutral, cx).1
+}
+
+/// `arcoscope_page_glow` on the same terms as `arcoscope_bar_background`.
+pub fn arcoscope_bar_glow(window: &Window, neutral: Hsla, cx: &App) -> Option<Hsla> {
+    if !editor_holds_arcoscope_focus(window, cx) {
+        return None;
     }
+    arcoscope_page_glow(neutral, cx)
+}
+
+/// (darker, lighter) tints of the current page.
+fn page_tints(neutral: Hsla, cx: &App) -> (Hsla, Option<Hsla>) {
+    let base = bar_active_base(neutral);
+    let Some((first, second)) = arcoscope_page(cx).and_then(arcoscope_page_accents) else {
+        return (rgb(base).into(), None);
+    };
+    let first = tint(base, first, ARCOSCOPE_PAGE_TINT_AMOUNT);
+    let Some(second) = second else {
+        return (first, None);
+    };
+    let second = tint(base, second, ARCOSCOPE_PAGE_TINT_AMOUNT);
+    if luminance(first) >= luminance(second) {
+        (second, Some(first))
+    } else {
+        (first, Some(second))
+    }
+}
+
+/// A two-colour page over a bar: its lighter tint on the left half, the bar's
+/// own (darker) tint left showing on the right, split by a short edge slanted
+/// like `/` through the middle, the way arcoscope splits a collection key on
+/// its diagonal. Absolute and behind content placed after it.
+pub fn arcoscope_split_overlay(light: Hsla) -> gpui::Canvas<()> {
+    use gpui::{Styled, canvas, fill, linear_color_stop, linear_gradient};
+    canvas(
+        |_, _, _| (),
+        move |bounds, (), window, _| {
+            let width = f32::from(bounds.size.width);
+            let height = f32::from(bounds.size.height);
+            if width <= 0. || height <= 0. {
+                return;
+            }
+            // The shader squeezes the gradient's direction by the box's aspect
+            // ratio; this angle undoes that, so the edge runs at 45 degrees on
+            // screen. Two stops one pixel apart give a hard edge (equal ones
+            // would divide by zero in the shader).
+            let angle = 90. + (width / height).atan().to_degrees();
+            let step = 1. / width.max(height);
+            let clear = Hsla { a: 0., ..light };
+            window.paint_quad(fill(
+                bounds,
+                linear_gradient(
+                    angle,
+                    linear_color_stop(light, 0.5),
+                    linear_color_stop(clear, 0.5 + step),
+                ),
+            ));
+        },
+    )
+    .absolute()
+    .top_0()
+    .left_0()
+    .size_full()
 }
 
 /// Update the active arcoscope page and redraw every window so the tint follows

@@ -1739,6 +1739,9 @@ struct Palette {
     /// instead of taking `bar_color`. `None` unless the terminal holds the
     /// keyboard, the same rule `bar_color` follows.
     page: Option<usize>,
+    /// A two-colour page's lighter tint, over the left half of the tab bar
+    /// and the bottom strip (`ui::arcoscope_split_overlay`). Same rule as `page`.
+    bar_glow: Option<Hsla>,
 }
 
 fn luminance(color: Rgba) -> f32 {
@@ -1764,6 +1767,7 @@ impl Palette {
                 inactive_text: to_rgba(colors.text_muted),
                 band_title: to_rgba(colors.text_accent),
                 page,
+                bar_glow: None,
             };
         }
         let colors = runtime::terminal_colors();
@@ -1783,8 +1787,12 @@ impl Palette {
         } else {
             bar
         };
+        let bar_glow = focused
+            .then(|| ui::arcoscope_page_glow(Hsla::from(background), cx))
+            .flatten();
         Self {
             page,
+            bar_glow,
             line,
             bar_color,
             active_background: background,
@@ -2516,6 +2524,7 @@ impl TerminalColumn {
                     fill_at(0., BAR_HEIGHT - 1., bar_width, 1., palette.line),
                 ]
             };
+        let glow = palette.bar_glow.filter(|_| !ui::has_arcoscope_skin("tab_bar", cx));
 
         div()
             .relative()
@@ -2540,6 +2549,9 @@ impl TerminalColumn {
                 .size_full(),
             )
             .children(background)
+            .when_some(glow, |this, glow| {
+                this.child(ui::arcoscope_split_overlay(glow).h(px(BAR_HEIGHT - 1.)))
+            })
             .child(
                 div()
                     .absolute()
@@ -2635,6 +2647,9 @@ impl TerminalColumn {
                     3,
                     scale,
                 ))
+                .when_some(palette.bar_glow, |this, glow| {
+                    this.child(ui::arcoscope_split_overlay(glow).top(px(1.)))
+                })
                 .into_any_element()
         } else {
             div()
@@ -2643,7 +2658,16 @@ impl TerminalColumn {
                 .flex()
                 .flex_col()
                 .child(div().w_full().h(px(1.)).bg(palette.line))
-                .child(div().w_full().h(px(BOTTOM_BAND_HEIGHT)).bg(bar))
+                .child(
+                    div()
+                        .relative()
+                        .w_full()
+                        .h(px(BOTTOM_BAND_HEIGHT))
+                        .bg(bar)
+                        .when_some(palette.bar_glow, |this, glow| {
+                            this.child(ui::arcoscope_split_overlay(glow))
+                        }),
+                )
                 .into_any_element()
         }
     }

@@ -96,6 +96,8 @@ impl RenderOnce for TabBar {
             cx.theme().colors().tab_bar_background,
             cx,
         );
+        let glow = crate::arcoscope_bar_glow(window, cx.theme().colors().tab_bar_background, cx)
+            .filter(|_| !crate::has_arcoscope_skin("tab_bar", cx));
         // Amiga theme: a faint ramp for the bar and a darker line along the
         // bottom that the inactive tabs stand on (the Ghostty fork's bar).
         let amiga = crate::arcoscope_amiga(cx);
@@ -123,6 +125,7 @@ impl RenderOnce for TabBar {
             .bg(fill)
             .relative()
             .children(crate::arcoscope_skin_surface("tab_bar", cx))
+            .when_some(glow, |this, glow| this.child(crate::arcoscope_split_overlay(glow)))
             .when(!self.start_children.is_empty(), |this| {
                 this.child(
                     h_flex()
