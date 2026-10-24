@@ -45,11 +45,14 @@ app=$out/$name
 rm -rf "$app"
 ditto "$app_path" "$app"
 
-# Both slices of each executable.
-for bin in zed cli; do
-    lipo -create -output "$app/Contents/MacOS/$bin" "target/${targets[0]}/release/$bin" "target/${targets[1]}/release/$bin"
+# Both slices of each executable. The app runs as Contents/MacOS/Sinter (built
+# as zed), so its process is not taken for Zed's.
+rm -f "$app/Contents/MacOS/zed"
+plutil -replace CFBundleExecutable -string Sinter "$app/Contents/Info.plist"
+for bin in zed:Sinter cli:cli; do
+    lipo -create -output "$app/Contents/MacOS/${bin#*:}" "target/${targets[0]}/release/${bin%%:*}" "target/${targets[1]}/release/${bin%%:*}"
     # The release profile keeps debug info: not in the download.
-    strip -S -x "$app/Contents/MacOS/$bin"
+    strip -S -x "$app/Contents/MacOS/${bin#*:}"
 done
 
 # As script/bundle-mac: the document icon, the embedded terminal's resources.
@@ -82,7 +85,7 @@ sed '/com.apple.developer.associated-domains/,+1d' crates/zed/resources/zed.enti
 sign() { /usr/bin/codesign --force --timestamp --options runtime --sign "$identity" "$@"; }
 sign "$app/Contents/MacOS/cli"
 sign "$app/Contents/MacOS/git"
-sign --entitlements "$entitlements" "$app/Contents/MacOS/zed"
+sign --entitlements "$entitlements" "$app/Contents/MacOS/Sinter"
 sign --entitlements "$entitlements" "$app"
 /usr/bin/codesign --verify --deep --strict "$app"
 echo "Built $app"

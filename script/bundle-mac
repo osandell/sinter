@@ -106,6 +106,15 @@ mv Cargo.toml.backup Cargo.toml
 popd
 echo "Bundled ${app_path}"
 
+# Sinter (the dev channel) runs as Contents/MacOS/Sinter, so its process is not
+# taken for Zed's (ps, killall, System Events). cargo builds it as zed.
+app_executable=zed
+if [[ "$channel" == "dev" ]]; then
+    app_executable=Sinter
+    rm -f "${app_path}/Contents/MacOS/zed"
+    plutil -replace CFBundleExecutable -string "$app_executable" "${app_path}/Contents/Info.plist"
+fi
+
 # DocumentTypes.plist references CFBundleTypeIconFile "Document", so the bundle must contain Document.icns.
 # We use the app icon as a placeholder document icon for now.
 document_icon_source="crates/zed/resources/Document.icns"
@@ -217,7 +226,7 @@ function sign_app_binaries() {
         # sequence of codesign commands modeled after this example: https://developer.apple.com/forums/thread/701514
         /usr/bin/codesign --deep --force --timestamp --options runtime --sign "$IDENTITY" "${app_path}/Contents/MacOS/cli" -v
         /usr/bin/codesign --deep --force --timestamp --options runtime --sign "$IDENTITY" "${app_path}/Contents/MacOS/git" -v
-        /usr/bin/codesign --deep --force --timestamp --options runtime --entitlements crates/zed/resources/zed.entitlements --sign "$IDENTITY" "${app_path}/Contents/MacOS/zed" -v
+        /usr/bin/codesign --deep --force --timestamp --options runtime --entitlements crates/zed/resources/zed.entitlements --sign "$IDENTITY" "${app_path}/Contents/MacOS/${app_executable}" -v
         /usr/bin/codesign --force --timestamp --options runtime --entitlements crates/zed/resources/zed.entitlements --sign "$IDENTITY" "${app_path}" -v
     else
         echo "One or more of the following variables are missing: MACOS_CERTIFICATE, MACOS_CERTIFICATE_PASSWORD, APPLE_NOTARIZATION_KEY, APPLE_NOTARIZATION_KEY_ID, APPLE_NOTARIZATION_ISSUER_ID"
@@ -350,7 +359,7 @@ function upload_debug_symbols() {
 
 upload_debug_symbols
 
-cp target/${target_triple}/${target_dir}/zed "${app_path}/Contents/MacOS/zed"
+cp target/${target_triple}/${target_dir}/zed "${app_path}/Contents/MacOS/${app_executable}"
 cp target/${target_triple}/${target_dir}/cli "${app_path}/Contents/MacOS/cli"
 sign_app_binaries
 

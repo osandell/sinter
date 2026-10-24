@@ -4,10 +4,10 @@
 mod reliability;
 mod zed;
 
-// Sinter keeps Zed's binary name inside its builds: the CLI finds the app at
-// Contents/MacOS/zed and the packaging scripts take target/*/zed, then
-// install it under Sinter's name. The data and config directories follow
-// APP_NAME, which is Sinter's.
+// Sinter keeps Zed's binary name inside its builds: the packaging scripts take
+// target/*/zed and install it under Sinter's name (Contents/MacOS/Sinter, which
+// the CLI finds through CFBundleExecutable; /usr/bin/sinter on Linux). The data
+// and config directories follow APP_NAME, which is Sinter's.
 const _: () = assert!(
     paths::APP_NAME_LOWERCASE.as_bytes().eq_ignore_ascii_case(b"sinter")
         && env!("CARGO_BIN_NAME").as_bytes().eq_ignore_ascii_case(b"zed"),

@@ -1250,6 +1250,13 @@ mod mac_os {
     struct InfoPlist {
         #[serde(rename = "CFBundleShortVersionString")]
         bundle_short_version_string: String,
+        // Sinter's bundle names its executable Sinter, Zed's zed.
+        #[serde(rename = "CFBundleExecutable", default = "default_bundle_executable")]
+        bundle_executable: String,
+    }
+
+    fn default_bundle_executable() -> String {
+        "zed".to_string()
     }
 
     enum Bundle {
@@ -1382,7 +1389,9 @@ mod mac_os {
             user_data_dir: Option<&str>,
         ) -> io::Result<ExitStatus> {
             let path = match self {
-                Bundle::App { app_bundle, .. } => app_bundle.join("Contents/MacOS/zed"),
+                Bundle::App { app_bundle, plist } => {
+                    app_bundle.join("Contents/MacOS").join(&plist.bundle_executable)
+                }
                 Bundle::LocalPath { executable, .. } => executable.clone(),
             };
 
@@ -1396,7 +1405,9 @@ mod mac_os {
 
         fn path(&self) -> PathBuf {
             match self {
-                Bundle::App { app_bundle, .. } => app_bundle.join("Contents/MacOS/zed"),
+                Bundle::App { app_bundle, plist } => {
+                    app_bundle.join("Contents/MacOS").join(&plist.bundle_executable)
+                }
                 Bundle::LocalPath { executable, .. } => executable.clone(),
             }
         }
