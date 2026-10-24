@@ -112,6 +112,11 @@ pub enum OpenRequestKind {
     ArcoscopeSetPage {
         page: usize,
     },
+    /// arcoscope is on collection `collection`, which holds no scope: the
+    /// window shows the empty view until a worktree is shown again.
+    ArcoscopeEmpty {
+        collection: usize,
+    },
     /// arcoscope: bring the window whose visible worktree is `path` to the front,
     /// in-process. `focus` also makes it key and activates the app; without it
     /// the window is only ordered front (above other apps, keyboard untouched).
@@ -227,6 +232,10 @@ impl std::fmt::Debug for OpenRequestKind {
             Self::ArcoscopeSetPage { page } => {
                 f.debug_struct("ArcoscopeSetPage").field("page", page).finish()
             }
+            Self::ArcoscopeEmpty { collection } => f
+                .debug_struct("ArcoscopeEmpty")
+                .field("collection", collection)
+                .finish(),
             Self::ArcoscopeRaise {
                 path,
                 focus,
@@ -391,6 +400,10 @@ impl OpenRequest {
                 // every window.
                 this.kind = Some(OpenRequestKind::ArcoscopeSetPage {
                     page: rest.trim_end_matches('/').parse()?,
+                });
+            } else if let Some(rest) = url.strip_prefix("zed://arcoscope/empty/") {
+                this.kind = Some(OpenRequestKind::ArcoscopeEmpty {
+                    collection: rest.trim_end_matches('/').parse()?,
                 });
             } else if let Some(query) = url
                 .strip_prefix("zed://arcoscope/raise?")

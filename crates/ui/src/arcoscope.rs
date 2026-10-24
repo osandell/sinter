@@ -121,6 +121,23 @@ fn arcoscope_page_accents(page: usize) -> Option<(u32, Option<u32>)> {
     ))
 }
 
+/// The single-colour pages a page is drawn in, the lighter first: the page
+/// itself twice for one of the first six. The skins' per-collection copies
+/// exist for those only, so a two-colour page puts two of them side by side.
+pub(crate) fn arcoscope_page_halves(page: usize) -> Option<(usize, usize)> {
+    if page < ARCOSCOPE_ACCENTS.len() {
+        return Some((page, page));
+    }
+    let (first, second) = *ARCOSCOPE_PAIRS.get(page - ARCOSCOPE_ACCENTS.len())?;
+    let lum = |index: usize| luminance(rgb(ARCOSCOPE_ACCENTS[index]).into());
+    Some(if lum(first) >= lum(second) { (first, second) } else { (second, first) })
+}
+
+/// The accent of one of the six single-colour pages.
+pub(crate) fn arcoscope_single_accent(page: usize) -> Option<Hsla> {
+    ARCOSCOPE_ACCENTS.get(page).map(|accent| rgb(*accent).into())
+}
+
 /// The single accent standing for a page: the colour itself, or the first of
 /// a pair.
 fn arcoscope_page_accent(page: usize) -> Option<u32> {
@@ -182,8 +199,13 @@ pub fn arcoscope_bar_glow(window: &Window, neutral: Hsla, cx: &App) -> Option<Hs
 
 /// (darker, lighter) tints of the current page.
 fn page_tints(neutral: Hsla, cx: &App) -> (Hsla, Option<Hsla>) {
+    page_tints_of(neutral, arcoscope_page(cx))
+}
+
+/// (darker, lighter) tints of `page`.
+fn page_tints_of(neutral: Hsla, page: Option<usize>) -> (Hsla, Option<Hsla>) {
     let base = bar_active_base(neutral);
-    let Some((first, second)) = arcoscope_page(cx).and_then(arcoscope_page_accents) else {
+    let Some((first, second)) = page.and_then(arcoscope_page_accents) else {
         return (rgb(base).into(), None);
     };
     let first = tint(base, first, ARCOSCOPE_PAGE_TINT_AMOUNT);
@@ -234,6 +256,114 @@ pub fn arcoscope_split_overlay(light: Hsla) -> gpui::Canvas<()> {
     .left_0()
     .size_full()
 }
+
+/// The collection (0-based) arcoscope parked on while it holds no scope, set by
+/// `zed://arcoscope/empty/<n>`: the window shows the empty view for it
+/// (`arcoscope_empty_view`) instead of the workspace until arcoscope shows a
+/// worktree again.
+#[derive(Default)]
+struct ArcoscopeEmpty(Option<usize>);
+
+impl Global for ArcoscopeEmpty {}
+
+/// Enter (`Some`) or leave (`None`) the empty view, redrawing the windows on a
+/// change.
+pub fn set_arcoscope_empty(collection: Option<usize>, cx: &mut App) {
+    if cx.try_global::<ArcoscopeEmpty>().map(|empty| empty.0) == Some(collection)
+        || (collection.is_none() && cx.try_global::<ArcoscopeEmpty>().is_none())
+    {
+        return;
+    }
+    cx.set_global(ArcoscopeEmpty(collection));
+    cx.refresh_windows();
+}
+
+pub fn arcoscope_empty(cx: &App) -> Option<usize> {
+    cx.try_global::<ArcoscopeEmpty>().and_then(|empty| empty.0)
+}
+
+/// arcoscope's daemon socket, where its interface's verbs go.
+fn arcoscope_daemon_socket() -> std::path::PathBuf {
+    if cfg!(target_os = "macos") {
+        return "/tmp/arcoscope.sock".into();
+    }
+    std::env::var_os("XDG_RUNTIME_DIR")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(std::env::temp_dir)
+        .join("arcoscope.sock")
+}
+
+/// arcoscope's project browser, as a click on an empty slot of its bar opens
+/// it; the project picked there opens in the collection arcoscope is parked on.
+fn open_arcoscope_project_browser(cx: &App) {
+    use gpui::AppContext as _;
+    cx.background_spawn(async move {
+        use std::io::Write as _;
+        let path = arcoscope_daemon_socket();
+        if let Err(error) = std::os::unix::net::UnixStream::connect(&path)
+            .and_then(|mut stream| stream.write_all(b"projects-show\n"))
+        {
+            log::error!("projects-show to {}: {error}", path.display());
+        }
+    })
+    .detach();
+}
+
+/// The window while arcoscope is on an empty collection: no worktree, a line
+/// saying so with a button that opens arcoscope's project browser, and the
+/// collection's colour strip along the bottom.
+pub fn arcoscope_empty_view(collection: usize, cx: &App) -> gpui::AnyElement {
+    use crate::prelude::*;
+    use crate::{Button, ButtonStyle, Label};
+    let colors = cx.theme().colors();
+    let strip = crate::arcoscope_skin_surface_variant(
+        "bottom_strip",
+        Some(collection),
+        cx,
+    )
+    .unwrap_or_else(|| {
+        // No skin: the drawn page colours, as the bars draw them.
+        let (dark, light) = page_tints_of(colors.tab_bar_background, Some(collection));
+        div()
+            .absolute()
+            .inset_0()
+            .bg(dark)
+            .children(light.map(arcoscope_split_overlay))
+            .into_any_element()
+    });
+    v_flex()
+        .id("arcoscope-empty")
+        .size_full()
+        .bg(colors.editor_background)
+        .child(
+            v_flex()
+                .flex_1()
+                .items_center()
+                .justify_center()
+                .gap_3()
+                .child(
+                    Label::new("No scope is open in this collection yet")
+                        .color(Color::Muted),
+                )
+                .child(
+                    Button::new("arcoscope-open-scope", "Open scope")
+                        .style(ButtonStyle::Filled)
+                        .on_click(|_, _, cx| open_arcoscope_project_browser(cx)),
+                ),
+        )
+        .child(
+            div()
+                .relative()
+                .w_full()
+                .flex_none()
+                .h(px(ARCOSCOPE_EMPTY_STRIP_HEIGHT))
+                .child(strip),
+        )
+        .into_any_element()
+}
+
+/// The empty view's strip: as tall as the workspace's bottom strip.
+const ARCOSCOPE_EMPTY_STRIP_HEIGHT: f32 = 10.0;
 
 /// Update the active arcoscope page and redraw every window so the tint follows
 /// it. No-op when the page is unchanged.

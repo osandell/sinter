@@ -1402,6 +1402,20 @@
                 ]
               }
             ]
+          },
+          "bottom_strip@5": {
+            "layers": [
+              {
+                "fill": "#f2a9b9",
+                "border": "#bc8390",
+                "border_widths": [
+                  1,
+                  0,
+                  0,
+                  0
+                ]
+              }
+            ]
           }
         }
       },

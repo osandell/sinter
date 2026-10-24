@@ -704,6 +704,7 @@ async fn handle_control(line: &str, cx: &mut AsyncApp) -> String {
             };
             let focus = verb == "focus-window";
             cx.update(|cx| {
+                ui::set_arcoscope_empty(None, cx);
                 let Some(column) = TerminalColumns::column_for_path(&normalize(title), cx) else {
                     return "no-window".into();
                 };
@@ -1144,7 +1145,10 @@ fn open_worktree(directory: PathBuf, title: PathBuf, cx: &mut App) -> &'static s
 fn new_window(directory: &str, title: &str, cx: &mut AsyncApp) -> String {
     let path = normalize(title);
     let directory = normalize(directory);
-    cx.update(|cx| open_worktree(directory, path, cx).into())
+    cx.update(|cx| {
+        ui::set_arcoscope_empty(None, cx);
+        open_worktree(directory, path, cx).into()
+    })
 }
 
 /// Gives the keyboard to the tab running Claude session `session` in

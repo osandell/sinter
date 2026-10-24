@@ -1546,6 +1546,9 @@ fn handle_open_request(request: OpenRequest, app_state: Arc<AppState>, cx: &mut 
                 // on the active window to follow the page.
                 ui::set_arcoscope_page(page, cx);
             }
+            OpenRequestKind::ArcoscopeEmpty { collection } => {
+                ui::set_arcoscope_empty(Some(collection), cx);
+            }
             OpenRequestKind::ArcoscopeTerminalWidth { width } => {
                 #[cfg(any(target_os = "macos", target_os = "linux"))]
                 ghostty_terminal::set_terminal_width(width, cx);
@@ -1698,6 +1701,7 @@ fn handle_open_request(request: OpenRequest, app_state: Arc<AppState>, cx: &mut 
                 editor,
                 terminal,
             } => {
+                ui::set_arcoscope_empty(None, cx);
                 #[cfg(not(any(target_os = "macos", target_os = "linux")))]
                 let _ = (&path, focus, editor, terminal);
                 #[cfg(any(target_os = "macos", target_os = "linux"))]

@@ -2292,9 +2292,12 @@ impl Render for MultiWorkspace {
                         .flex_1()
                         .size_full()
                         .overflow_hidden()
-                        .map(|this| match &self.full_overlay {
-                            Some(overlay) => this.child(overlay.clone()),
-                            None => this.child(self.workspace().clone()),
+                        .map(|this| match (ui::arcoscope_empty(cx), &self.full_overlay) {
+                            (Some(collection), _) => {
+                                this.child(ui::arcoscope_empty_view(collection, cx))
+                            }
+                            (None, Some(overlay)) => this.child(overlay.clone()),
+                            (None, None) => this.child(self.workspace().clone()),
                         }),
                 )
                 .children(right_sidebar)

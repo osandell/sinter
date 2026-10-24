@@ -541,19 +541,42 @@ pub fn arcoscope_skin_surface_variant_rounded(
     corners: [Pixels; 4],
     cx: &App,
 ) -> Option<AnyElement> {
-    let surface = variant
-        .and_then(|variant| active_surface(&format!("{name}@{variant}"), cx))
-        .or_else(|| active_surface(name, cx))?;
-    if corners.iter().all(|corner| *corner <= px(0.)) {
-        return Some(surface_element(surface));
+    let Some((light, dark)) = variant.and_then(crate::arcoscope::arcoscope_page_halves) else {
+        return active_surface(name, cx).map(|surface| half_element(&surface, None, corners));
+    };
+    let (dark_surface, dark_tint) = page_half(name, dark, cx)?;
+    if light == dark {
+        return Some(half_element(&dark_surface, dark_tint, corners));
     }
-    let mut rounded = (*surface).clone();
-    for layer in &mut rounded.layers {
-        for (radius, corner) in layer.radius.iter_mut().zip(corners) {
-            *radius = radius.max(f32::from(corner));
-        }
-    }
-    Some(surface_element(Arc::new(rounded)))
+    // Two colours: the lighter page's copy on the left half, the darker's on
+    // the right, each keeping the outer corners on its side.
+    let (light_surface, light_tint) = page_half(name, light, cx)?;
+    let [top_left, top_right, bottom_right, bottom_left] = corners;
+    let zero = px(0.);
+    Some(
+        div()
+            .absolute()
+            .inset_0()
+            .child(
+                div()
+                    .absolute()
+                    .top_0()
+                    .bottom_0()
+                    .left_0()
+                    .w(relative(0.5))
+                    .child(half_element(&light_surface, light_tint, [top_left, zero, zero, bottom_left])),
+            )
+            .child(
+                div()
+                    .absolute()
+                    .top_0()
+                    .bottom_0()
+                    .right_0()
+                    .w(relative(0.5))
+                    .child(half_element(&dark_surface, dark_tint, [zero, top_right, bottom_right, zero])),
+            )
+            .into_any_element(),
+    )
 }
 
 pub fn has_arcoscope_skin(name: &str, cx: &App) -> bool {
@@ -722,9 +745,54 @@ pub fn arcoscope_skin_surface_variant(
     variant: Option<usize>,
     cx: &App,
 ) -> Option<AnyElement> {
-    variant
-        .and_then(|variant| arcoscope_skin_surface(&format!("{name}@{variant}"), cx))
-        .or_else(|| arcoscope_skin_surface(name, cx))
+    arcoscope_skin_surface_variant_rounded(name, variant, [px(0.); 4], cx)
+}
+
+/// How opaque the page colour is over the neutral surface of a page the skin
+/// has no copy of.
+const PAGE_TINT_ALPHA: f32 = 0.45;
+
+/// One single-colour page's copy of `name`: the skin's own `name@page`, or,
+/// when the skin has per-collection copies but not this one (they were drawn
+/// for the first five), the neutral surface under the page colour.
+fn page_half(name: &str, page: usize, cx: &App) -> Option<(Arc<LoadedSurface>, Option<Hsla>)> {
+    if let Some(surface) = active_surface(&format!("{name}@{page}"), cx) {
+        return Some((surface, None));
+    }
+    let neutral = active_surface(name, cx)?;
+    let tint = active_surface(&format!("{name}@0"), cx)
+        .and(crate::arcoscope::arcoscope_single_accent(page))
+        .map(|accent| accent.opacity(PAGE_TINT_ALPHA));
+    Some((neutral, tint))
+}
+
+fn rounded_to(surface: &LoadedSurface, corners: [Pixels; 4]) -> LoadedSurface {
+    let mut rounded = surface.clone();
+    for layer in &mut rounded.layers {
+        for (radius, corner) in layer.radius.iter_mut().zip(corners) {
+            *radius = radius.max(f32::from(corner));
+        }
+    }
+    rounded
+}
+
+fn half_element(surface: &LoadedSurface, tint: Option<Hsla>, corners: [Pixels; 4]) -> AnyElement {
+    let [top_left, top_right, bottom_right, bottom_left] = corners;
+    div()
+        .absolute()
+        .inset_0()
+        .child(surface_element(Arc::new(rounded_to(surface, corners))))
+        .children(tint.map(|tint| {
+            div()
+                .absolute()
+                .inset_0()
+                .rounded_tl(top_left)
+                .rounded_tr(top_right)
+                .rounded_br(bottom_right)
+                .rounded_bl(bottom_left)
+                .bg(tint)
+        }))
+        .into_any_element()
 }
 
 pub fn arcoscope_skin_surface(name: &str, cx: &App) -> Option<AnyElement> {
