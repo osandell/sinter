@@ -549,32 +549,36 @@ pub fn arcoscope_skin_surface_variant_rounded(
         return Some(half_element(&dark_surface, dark_tint, corners));
     }
     // Two colours: the lighter page's copy on the left half, the darker's on
-    // the right, each keeping the outer corners on its side.
+    // the right. Each half draws the whole surface and is clipped to its
+    // side, so the skin's border and corners stay one piece and only the
+    // colour changes in the middle.
     let (light_surface, light_tint) = page_half(name, light, cx)?;
-    let [top_left, top_right, bottom_right, bottom_left] = corners;
-    let zero = px(0.);
+    let clipped_half = |surface: &LoadedSurface, tint: Option<Hsla>, left: bool| {
+        div()
+            .absolute()
+            .top_0()
+            .bottom_0()
+            .w(relative(0.5))
+            .when(left, |this| this.left_0())
+            .when(!left, |this| this.right_0())
+            .overflow_hidden()
+            .child(
+                div()
+                    .absolute()
+                    .top_0()
+                    .bottom_0()
+                    .w(relative(2.))
+                    .when(left, |this| this.left_0())
+                    .when(!left, |this| this.right_0())
+                    .child(half_element(surface, tint, corners)),
+            )
+    };
     Some(
         div()
             .absolute()
             .inset_0()
-            .child(
-                div()
-                    .absolute()
-                    .top_0()
-                    .bottom_0()
-                    .left_0()
-                    .w(relative(0.5))
-                    .child(half_element(&light_surface, light_tint, [top_left, zero, zero, bottom_left])),
-            )
-            .child(
-                div()
-                    .absolute()
-                    .top_0()
-                    .bottom_0()
-                    .right_0()
-                    .w(relative(0.5))
-                    .child(half_element(&dark_surface, dark_tint, [zero, top_right, bottom_right, zero])),
-            )
+            .child(clipped_half(&light_surface, light_tint, true))
+            .child(clipped_half(&dark_surface, dark_tint, false))
             .into_any_element(),
     )
 }
