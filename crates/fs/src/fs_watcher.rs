@@ -453,10 +453,8 @@ fn watcher_logging_rate_limited() -> bool {
 
     if started.elapsed().as_secs() < 1 {
         if *emitted < 20 {
-            log::warn!("filesystem watcher lost sync for many files, not logging more");
-            return true;
-        } else {
             *emitted += 1;
+            log::warn!("filesystem watcher lost sync for many files, not logging more");
         }
     } else {
         *emitted = 0;

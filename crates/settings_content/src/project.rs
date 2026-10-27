@@ -128,8 +128,6 @@ pub struct WorktreeSettingsContent {
     ///   "**/.svn",
     ///   "**/.hg",
     ///   "**/.jj",
-    ///   "**/.sl",
-    ///   "**/.repo",
     ///   "**/CVS",
     ///   "**/.DS_Store",
     ///   "**/Thumbs.db",
