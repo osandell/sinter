@@ -3825,9 +3825,11 @@ pub(crate) fn render_workspace_nav_buttons(
         // half of that is pulled back, so the gap matches the one the control
         // has on a terminal column's bar.
         .child(
-            div()
-                .mr(-RIGHT_SIDE_MODE_GAP)
-                .child(render_right_side_mode(right_side_terminal, cx)),
+            div().mr(-RIGHT_SIDE_MODE_GAP).child(render_right_side_mode(
+                right_side_terminal,
+                gpui::size(nav_button_width, px(32.)),
+                cx,
+            )),
         )
 }
 
@@ -3836,21 +3838,41 @@ pub(crate) fn render_workspace_nav_buttons(
 /// a click anywhere on it switches to the other. Drawn in the editor's nav row
 /// and, while a terminal column stands in the editor's place, in that column's
 /// tab bar, where the editor's own row is out of sight.
-pub fn render_right_side_mode(right_side_terminal: bool, cx: &mut App) -> gpui::Stateful<Div> {
-    let colors = cx.theme().colors();
-    // Lighter than the bar the control sits on, in a light theme and a dark
-    // one: the mode in use reads off the plate, not off a colour.
-    let plate = colors.background;
-    let segment = |icon: IconName, active: bool| {
+///
+/// `segment` is one side's size: the control is two of them wide and wears the
+/// same button face as the buttons beside it, so it stands as tall as they do
+/// and needs no spacing of its own.
+pub fn render_right_side_mode(
+    right_side_terminal: bool,
+    segment: gpui::Size<Pixels>,
+    cx: &mut App,
+) -> gpui::Stateful<Div> {
+    let colors = cx.theme().colors().clone();
+    // Well clear of the bar it sits on, in a light theme and a dark one: the
+    // mode in use has to read at a glance, and the icons stay plain.
+    let plate = ui::arcoscope_lighten(colors.tab_bar_background, 0.6);
+    let side = |icon: IconName, active: bool| {
         div()
+            .w(segment.width)
+            .h(segment.height)
             .flex()
             .items_center()
             .justify_center()
-            .w(px(26.))
-            .h(px(20.))
-            .rounded_xs()
-            .when(active, |this| this.bg(plate))
-            .child(Icon::new(icon).size(IconSize::Small).color(Color::Default))
+            .child(
+                // Inset from the control's face, not margined inside it: a
+                // full-size child with a margin would overflow the segment.
+                div()
+                    .w(segment.width - px(6.))
+                    .h(segment.height - px(6.))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .rounded_xs()
+                    .when(active, |this| {
+                        this.bg(plate).border_1().border_color(colors.border)
+                    })
+                    .child(Icon::new(icon).size(IconSize::Small).color(Color::Default)),
+            )
     };
     let tooltip = if right_side_terminal {
         "Editor on the Right"
@@ -3859,6 +3881,7 @@ pub fn render_right_side_mode(right_side_terminal: bool, cx: &mut App) -> gpui::
     };
     div()
         .id("right-side-mode")
+        .relative()
         .cursor_pointer()
         .tooltip(Tooltip::text(tooltip))
         // The action lives in the `ghostty_terminal` crate, which depends on
@@ -3871,14 +3894,14 @@ pub fn render_right_side_mode(right_side_terminal: bool, cx: &mut App) -> gpui::
                 window.dispatch_action(action, cx);
             }
         })
+        .children(
+            ui::arcoscope_skin_surface("nav_button", cx)
+                .or_else(|| ui::arcoscope_skin_surface("button", cx)),
+        )
         .child(
             h_flex()
-                .p(px(2.))
-                .rounded_sm()
-                .border_1()
-                .border_color(colors.border)
-                .child(segment(IconName::FileCode, !right_side_terminal))
-                .child(segment(IconName::Terminal, right_side_terminal)),
+                .child(side(IconName::FileCode, !right_side_terminal))
+                .child(side(IconName::Terminal, right_side_terminal)),
         )
 }
 
