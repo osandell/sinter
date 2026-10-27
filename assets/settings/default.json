@@ -1565,6 +1565,14 @@
     "**/Thumbs.db",
     "**/.classpath",
     "**/.settings",
+    // Build and dependency output. These are gitignored, but git-ignored paths are still watched
+    // and still rescanned: a build writing thousands of files into an open worktree makes FSEvents
+    // drop events, and every drop schedules a full rescan of the root. Excluding them keeps a
+    // rescan cheap and keeps the event flood from reaching the worktree at all.
+    "**/target",
+    "**/node_modules",
+    "**/.venv",
+    "**/__pycache__",
   ],
   // Files or globs of files that will be included by Zed, even when ignored by git. This is useful
   // for files that are not tracked by git, but are still important to your project. Note that globs

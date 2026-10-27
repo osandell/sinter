@@ -128,11 +128,17 @@ pub struct WorktreeSettingsContent {
     ///   "**/.svn",
     ///   "**/.hg",
     ///   "**/.jj",
+    ///   "**/.sl",
+    ///   "**/.repo",
     ///   "**/CVS",
     ///   "**/.DS_Store",
     ///   "**/Thumbs.db",
     ///   "**/.classpath",
-    ///   "**/.settings"
+    ///   "**/.settings",
+    ///   "**/target",
+    ///   "**/node_modules",
+    ///   "**/.venv",
+    ///   "**/__pycache__"
     /// ]
     pub file_scan_exclusions: Option<Vec<String>>,
 
