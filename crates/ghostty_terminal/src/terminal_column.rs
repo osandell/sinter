@@ -2665,6 +2665,7 @@ impl TerminalColumn {
                                 .flex_none()
                                 .flex()
                                 .items_center()
+                                .pr(workspace::pane::RIGHT_SIDE_MODE_GAP)
                                 .child(workspace::pane::render_right_side_mode(true, cx)),
                         )
                     }),

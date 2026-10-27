@@ -3821,64 +3821,70 @@ pub(crate) fn render_workspace_nav_buttons(
             }),
         )
         // Last in the row, so it keeps its place when the buttons before it
-        // come and go.
-        .child(render_right_side_mode(right_side_terminal, cx))
+        // come and go. The tab bar's end slot pads it 6px off the window edge;
+        // half of that is pulled back, so the gap matches the one the control
+        // has on a terminal column's bar.
+        .child(
+            div()
+                .mr(-RIGHT_SIDE_MODE_GAP)
+                .child(render_right_side_mode(right_side_terminal, cx)),
+        )
 }
 
 /// What the right side of the window shows: the editor or a terminal column of
-/// its own. Both sides are always on show, side by side, the one in use marked;
-/// clicking the other one switches to it. Drawn in the editor's nav row and,
-/// while a terminal column stands in the editor's place, in that column's tab
-/// bar, where the editor's own row is out of sight.
-pub fn render_right_side_mode(right_side_terminal: bool, cx: &mut App) -> Div {
-    let segment = |id: &'static str, icon: IconName, active: bool, tooltip: &'static str| {
-        IconButton::new(id, icon)
-            .icon_size(IconSize::Small)
-            .width(px(28.))
-            .size(ButtonSize::Large)
-            .toggle_state(active)
-            .icon_color(if active { Color::Default } else { Color::Muted })
-            .tooltip(Tooltip::text(tooltip))
-            .map(|button| {
-                if active {
-                    // Already there: the segment marks the mode rather than
-                    // offering it. Not `disabled`, which would grey out the
-                    // very segment that should read as the one in use.
-                    button
-                } else {
-                    // The action lives in the `ghostty_terminal` crate, which depends
-                    // on `workspace`; build it by name to avoid the cycle.
-                    button.on_click(|_, window, cx| {
-                        if let Some(action) = cx
-                            .build_action("ghostty_terminal::ToggleRightSideTerminal", None)
-                            .log_err()
-                        {
-                            window.dispatch_action(action, cx);
-                        }
-                    })
-                }
-            })
+/// its own. One control carrying both sides, the one in use on a lighter plate;
+/// a click anywhere on it switches to the other. Drawn in the editor's nav row
+/// and, while a terminal column stands in the editor's place, in that column's
+/// tab bar, where the editor's own row is out of sight.
+pub fn render_right_side_mode(right_side_terminal: bool, cx: &mut App) -> gpui::Stateful<Div> {
+    let colors = cx.theme().colors();
+    // Lighter than the bar the control sits on, in a light theme and a dark
+    // one: the mode in use reads off the plate, not off a colour.
+    let plate = colors.background;
+    let segment = |icon: IconName, active: bool| {
+        div()
+            .flex()
+            .items_center()
+            .justify_center()
+            .w(px(26.))
+            .h(px(20.))
+            .rounded_xs()
+            .when(active, |this| this.bg(plate))
+            .child(Icon::new(icon).size(IconSize::Small).color(Color::Default))
     };
-    div().relative().child(
-        h_flex()
-            .rounded_sm()
-            .border_1()
-            .border_color(cx.theme().colors().border)
-            .overflow_hidden()
-            .child(segment(
-                "right-side-editor",
-                IconName::FileCode,
-                !right_side_terminal,
-                "Editor on the Right",
-            ))
-            .child(segment(
-                "right-side-terminal",
-                IconName::Terminal,
-                right_side_terminal,
-                "Terminal on the Right",
-            )),
-    )
+    let tooltip = if right_side_terminal {
+        "Editor on the Right"
+    } else {
+        "Terminal on the Right"
+    };
+    div()
+        .id("right-side-mode")
+        .cursor_pointer()
+        .tooltip(Tooltip::text(tooltip))
+        // The action lives in the `ghostty_terminal` crate, which depends on
+        // `workspace`; build it by name to avoid the cycle.
+        .on_click(|_, window, cx| {
+            if let Some(action) = cx
+                .build_action("ghostty_terminal::ToggleRightSideTerminal", None)
+                .log_err()
+            {
+                window.dispatch_action(action, cx);
+            }
+        })
+        .child(
+            h_flex()
+                .p(px(2.))
+                .rounded_sm()
+                .border_1()
+                .border_color(colors.border)
+                .child(segment(IconName::FileCode, !right_side_terminal))
+                .child(segment(IconName::Terminal, right_side_terminal)),
+        )
 }
+
+/// How far the editor/terminal control stands off the window's right edge, the
+/// same wherever it is drawn.
+pub const RIGHT_SIDE_MODE_GAP: Pixels = px(3.);
 
 impl Pane {
     fn render_single_row_tab_bar(
