@@ -2129,7 +2129,12 @@ impl ProjectPanel {
             self.last_reported_geom = None;
             self.report_sidebar_inactive(window, cx);
         } else {
-            self.arcoscope_resend_geometry(window, cx);
+            // This runs from a workspace subscription, so the workspace is leased for
+            // writing further up the stack, and resending reads it back through
+            // `is_active_dock_panel`. Wait until the lease is returned.
+            cx.defer_in(window, |this, window, cx| {
+                this.arcoscope_resend_geometry(window, cx);
+            });
         }
     }
 

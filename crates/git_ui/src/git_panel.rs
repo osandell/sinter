@@ -5463,7 +5463,11 @@ impl GitPanel {
             self.last_reported_git_geom = None;
             self.report_sidebar_inactive(window, cx);
         } else {
-            self.arcoscope_resend_geometry(window, cx);
+            // See `ProjectPanel::arcoscope_editor_hidden`: the workspace is still
+            // leased by the subscription that got us here.
+            cx.defer_in(window, |this, window, cx| {
+                this.arcoscope_resend_geometry(window, cx);
+            });
         }
     }
 
