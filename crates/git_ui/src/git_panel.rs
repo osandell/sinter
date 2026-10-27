@@ -5426,6 +5426,11 @@ impl GitPanel {
             return false;
         };
         let position = Panel::position(self, window, cx);
+        // See `ProjectPanel::is_active_dock_panel`: the editor half is only
+        // hidden behind the right side's terminal column, never unbuilt.
+        if workspace.read(cx).trailing_column().is_some() {
+            return false;
+        }
         let dock = workspace.read(cx).dock_at_position(position).read(cx);
         dock.is_open()
             && dock
@@ -5444,6 +5449,21 @@ impl GitPanel {
             cx.notify();
         } else {
             self.report_sidebar_inactive(window, cx);
+        }
+    }
+
+    /// See `ProjectPanel::arcoscope_editor_hidden`.
+    pub fn arcoscope_editor_hidden(
+        &mut self,
+        hidden: bool,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) {
+        if hidden {
+            self.last_reported_git_geom = None;
+            self.report_sidebar_inactive(window, cx);
+        } else {
+            self.arcoscope_resend_geometry(window, cx);
         }
     }
 

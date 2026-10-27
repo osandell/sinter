@@ -3450,13 +3450,16 @@ impl Pane {
     /// path. Uses the previous frame's laid-out tab bounds (window-local points);
     /// throttled to on-change.
     fn report_tab_geometry(&mut self, window: &Window, cx: &mut Context<Pane>) {
-        let Some(project) = self.project.upgrade() else {
+        // A terminal column of the right side's own hides the editor half with
+        // `display: none`, which still builds the tab bar, holding the bounds of
+        // the last frame it was on screen in. Reporting those would badge tabs
+        // that are not there; `arcoscope_editor_hidden` has said they are gone.
+        let Some(workspace) = self.workspace.upgrade() else {
             return;
         };
-        let Some(worktree) = project.read(cx).visible_worktrees(cx).next() else {
+        if workspace.read(cx).trailing_column().is_some() {
             return;
-        };
-        let path = worktree.read(cx).abs_path().to_string_lossy().into_owned();
+        }
 
         // First few tabs only (matches arcoscope's ZED_HINT_LABELS: q w f p).
         let n = self.items.len().min(4);
@@ -3472,26 +3475,62 @@ impl Pane {
         if xs.is_empty() {
             return;
         }
+        if let Some(msg) = self.arcoscope_tab_message(center_y, &xs, window, cx) {
+            self.send_arcoscope_tab_message(msg);
+        }
+    }
 
-        // The window's own screen frame (top-left origin points), so arcoscope needs
-        // no AX lookup to place the overlay.
+    /// Report the editor's tab row as gone, or let the next render report it
+    /// again. arcoscope draws the hold-y badges from the last report, and the
+    /// half that shows a terminal column instead of the editor never renders,
+    /// so it would otherwise keep badging tabs that are not on screen. A
+    /// `zed-tabs` line with no tab x at all is what says "not on screen".
+    pub fn arcoscope_editor_hidden(
+        &mut self,
+        hidden: bool,
+        window: &Window,
+        cx: &mut Context<Pane>,
+    ) {
+        self.last_reported_tab_geom = None;
+        if !hidden {
+            cx.notify();
+            return;
+        }
+        if let Some(msg) = self.arcoscope_tab_message(0.0, &[], window, cx) {
+            self.send_arcoscope_tab_message(msg);
+        }
+    }
+
+    /// The `zed-tabs` line for this pane's worktree: the window's own screen
+    /// frame (top-left origin points), so arcoscope needs no AX lookup to place
+    /// the overlay, then the tab row's centre and each tab's left edge.
+    fn arcoscope_tab_message(
+        &self,
+        center_y: f32,
+        xs: &[f32],
+        window: &Window,
+        cx: &App,
+    ) -> Option<String> {
+        let project = self.project.upgrade()?;
+        let worktree = project.read(cx).visible_worktrees(cx).next()?;
+        let path = worktree.read(cx).abs_path().to_string_lossy().into_owned();
         let wb = window.bounds();
-        let frame = (
+        let mut msg = format!(
+            "zed-tabs\t{}\t{:.0}\t{:.0}\t{:.0}\t{:.0}\t{:.0}",
+            path,
             f32::from(wb.origin.x),
             f32::from(wb.origin.y),
             f32::from(wb.size.width),
             f32::from(wb.size.height),
+            center_y,
         );
+        for x in xs {
+            msg.push_str(&format!("\t{:.0}", x));
+        }
+        Some(msg)
+    }
 
-        let xs_str = xs
-            .iter()
-            .map(|x| format!("{:.0}", x))
-            .collect::<Vec<_>>()
-            .join("\t");
-        let msg = format!(
-            "zed-tabs\t{}\t{:.0}\t{:.0}\t{:.0}\t{:.0}\t{:.0}\t{}",
-            path, frame.0, frame.1, frame.2, frame.3, center_y, xs_str
-        );
+    fn send_arcoscope_tab_message(&mut self, msg: String) {
         if self.last_reported_tab_geom.as_deref() == Some(msg.as_str()) {
             return;
         }

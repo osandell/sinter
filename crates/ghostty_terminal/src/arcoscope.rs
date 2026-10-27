@@ -1374,9 +1374,14 @@ fn descends_from(mut pid: i32, ancestor: i32) -> bool {
 }
 
 fn tab_hints(path: &Path, cx: &mut App) -> String {
-    let Some(column) = TerminalColumns::column_for_path(path, cx) else {
+    // Both columns, in the order `select-tab` and `list-tabs` count them, so a
+    // badge's slot is the index those verbs take: the right side's tabs are
+    // reachable from the overlay only while they are on screen, which is what
+    // `columns_of_worktree` already filters on.
+    let columns = columns_of_worktree(path, cx);
+    if columns.is_empty() {
         return "no-window".into();
-    };
+    }
     let Some(window) = workspace::unified_window_handle(cx) else {
         return "no-window".into();
     };
@@ -1390,7 +1395,15 @@ fn tab_hints(path: &Path, cx: &mut App) -> String {
     // AppKit's origin is the bottom-left of the primary screen; arcoscope's is its
     // top-left.
     let top = crate::primary_screen_height().map_or(y, |screen| screen - (y + height));
-    let (row_center, xs) = column.read(cx).tab_positions();
+    let mut row_center = 0.;
+    let mut xs = Vec::new();
+    for (index, column) in columns.iter().enumerate() {
+        let (center, column_xs) = column.read(cx).tab_positions();
+        if index == 0 {
+            row_center = center;
+        }
+        xs.extend(column_xs);
+    }
     let mut reply = format!("tabs\t{x}\t{top}\t{width}\t{height}\t{row_center}");
     for tab_x in xs {
         reply.push_str(&format!("\t{tab_x}"));

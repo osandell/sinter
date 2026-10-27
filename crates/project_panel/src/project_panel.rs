@@ -2084,6 +2084,13 @@ impl ProjectPanel {
             return false;
         };
         let position = Panel::position(self, window, cx);
+        // A terminal column of the right side's own hides the editor half, dock
+        // and all, with `display: none`. The dock still builds, holding the
+        // bounds of the last frame it was on screen in, so without this
+        // arcoscope would go on badging rows that are not there.
+        if workspace.read(cx).trailing_column().is_some() {
+            return false;
+        }
         let dock = workspace.read(cx).dock_at_position(position).read(cx);
         dock.is_open()
             && dock
@@ -2105,6 +2112,24 @@ impl ProjectPanel {
             cx.notify();
         } else {
             self.report_sidebar_inactive(window, cx);
+        }
+    }
+
+    /// The editor half, dock and all, went off screen behind a terminal column
+    /// of the right side's own, or came back. Nothing renders while it is gone,
+    /// so the hint rows have to be withdrawn here or arcoscope keeps badging a
+    /// panel that is not on screen.
+    pub fn arcoscope_editor_hidden(
+        &mut self,
+        hidden: bool,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) {
+        if hidden {
+            self.last_reported_geom = None;
+            self.report_sidebar_inactive(window, cx);
+        } else {
+            self.arcoscope_resend_geometry(window, cx);
         }
     }
 

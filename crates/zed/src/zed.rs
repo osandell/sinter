@@ -391,6 +391,33 @@ fn center_has_no_items(workspace: &Workspace, cx: &App) -> bool {
 /// no open items. The git panel is allowed to stay active while empty, but only when
 /// the working tree has changes; if it's clean, a brief toast is shown and focus
 /// falls back to the project panel.
+/// Tell arcoscope whether the editor half is on screen at all. Its hint
+/// overlays are drawn from geometry the pane and the dock panels push as they
+/// render, and the half that a terminal column of the right side's own stands
+/// in front of renders nothing, so only this says the tabs and panel rows are
+/// gone — and puts them back when the editor returns.
+fn arcoscope_report_editor_half(
+    workspace: &mut Workspace,
+    window: &mut Window,
+    cx: &mut Context<Workspace>,
+) {
+    let hidden = workspace.trailing_column().is_some();
+    let pane = workspace.active_pane().clone();
+    pane.update(cx, |pane, cx| {
+        pane.arcoscope_editor_hidden(hidden, window, cx);
+    });
+    if let Some(panel) = workspace.panel::<ProjectPanel>(cx) {
+        panel.update(cx, |panel, cx| {
+            panel.arcoscope_editor_hidden(hidden, window, cx);
+        });
+    }
+    if let Some(panel) = workspace.panel::<GitPanel>(cx) {
+        panel.update(cx, |panel, cx| {
+            panel.arcoscope_editor_hidden(hidden, window, cx);
+        });
+    }
+}
+
 fn keep_project_panel_open_when_empty(
     workspace: &mut Workspace,
     window: &mut Window,
@@ -578,6 +605,9 @@ pub fn initialize_workspace(app_state: Arc<AppState>, cx: &mut App) {
                     title,
                     language,
                 } => open_bundled_file(workspace, text.clone(), title, language, window, cx),
+                workspace::Event::TrailingColumnChanged => {
+                    arcoscope_report_editor_half(workspace, window, cx);
+                }
                 _ => {}
             }
         })

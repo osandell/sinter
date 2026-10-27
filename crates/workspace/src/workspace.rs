@@ -1315,6 +1315,10 @@ pub enum Event {
     Activate,
     PanelAdded(AnyView),
     WorktreeCreationChanged,
+    /// The right side swapped between the editor and a terminal column of its
+    /// own. What the editor half reports to arcoscope is render-driven, and a
+    /// half that is not on screen never renders, so the swap has to say so.
+    TrailingColumnChanged,
 }
 
 /// Controls which types of items should be made visible in the project panel
@@ -3064,6 +3068,7 @@ impl Workspace {
             return;
         }
         self.trailing_column = column;
+        cx.emit(Event::TrailingColumnChanged);
         cx.notify();
     }
 

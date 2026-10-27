@@ -398,6 +398,10 @@ pub struct TerminalColumn {
     started: bool,
     focus_handle: FocusHandle,
     bar_width: f32,
+    /// The tab bar's top-left in the window, from the last paint. Zero for a
+    /// leading column in an unskinned window; the right half's edge for a
+    /// trailing one, which is what arcoscope's hint badges are placed against.
+    bar_origin: (f32, f32),
     /// Split bounds from the last paint, keyed by the path to the split.
     split_bounds: Vec<(u64, Vec<bool>, Bounds<Pixels>)>,
     dragging_divider: Option<(u64, Vec<bool>)>,
@@ -518,6 +522,7 @@ impl TerminalColumn {
             started: false,
             focus_handle,
             bar_width: MAX_TAB_WIDTH + NEW_TAB_BUTTONS_WIDTH,
+            bar_origin: (0., 0.),
             split_bounds: Vec::new(),
             dragging_divider: None,
             worktree_picker: None,
@@ -2022,14 +2027,15 @@ fn fill_at(x: f32, y: f32, width: f32, height: f32, color: Rgba) -> AnyElement {
 }
 
 impl TerminalColumn {
-    /// The tab row's vertical centre and each tab's left edge, relative to
-    /// the column's top-left (the window's, since the column sits at its left).
+    /// The tab row's vertical centre and each tab's left edge, in the window's
+    /// own points. Both columns' bars sit at the top of the window, so only the
+    /// left edge differs between them.
     pub fn tab_positions(&self) -> (f32, Vec<f32>) {
         let width = self.tab_width();
         let xs = (0..self.tabs.len())
-            .map(|index| index as f32 * width)
+            .map(|index| self.bar_origin.0 + index as f32 * width)
             .collect();
-        (1. + BAR_HEIGHT / 2., xs)
+        (self.bar_origin.1 + 1. + BAR_HEIGHT / 2., xs)
     }
 
     fn tab_width(&self) -> f32 {
@@ -2599,7 +2605,12 @@ impl TerminalColumn {
                 canvas(
                     move |bounds, _window, cx| {
                         let width = f32::from(bounds.size.width).floor();
+                        let origin = (
+                            f32::from(bounds.origin.x).floor(),
+                            f32::from(bounds.origin.y).floor(),
+                        );
                         entity.update(cx, |this, cx| {
+                            this.bar_origin = origin;
                             if this.bar_width != width {
                                 this.bar_width = width;
                                 cx.notify();
