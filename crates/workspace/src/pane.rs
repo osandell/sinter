@@ -3825,60 +3825,30 @@ pub(crate) fn render_workspace_nav_buttons(
         // half of that is pulled back, so the gap matches the one the control
         // has on a terminal column's bar.
         .child(
-            div().mr(-RIGHT_SIDE_MODE_GAP).child(render_right_side_mode(
-                right_side_terminal,
-                gpui::size(nav_button_width, px(32.)),
-                cx,
-            )),
+            div()
+                .mr(-RIGHT_SIDE_MODE_GAP)
+                .child(render_right_side_mode(right_side_terminal, cx)),
         )
 }
 
 /// What the right side of the window shows: the editor or a terminal column of
-/// its own. Two buttons side by side, one per side, the one in use carrying a
-/// plate behind its icon; a click on either switches to the other. Drawn in the
-/// editor's nav row and, while a terminal column stands in the editor's place,
-/// in that column's tab bar, where the editor's own row is out of sight.
-///
-/// `segment` is one button's size, the size of the buttons beside it. Each gets
-/// a face of its own rather than the pair sharing one: a skin's button face
-/// scales with its proportions, so one face at two buttons' width also came out
-/// taller than its neighbours and ran past the bar's bottom rule.
-pub fn render_right_side_mode(
-    right_side_terminal: bool,
-    segment: gpui::Size<Pixels>,
-    cx: &mut App,
-) -> Div {
+/// its own. One control carrying both sides, the one in use on a lighter plate;
+/// a click anywhere on it switches to the other. Drawn in the editor's nav row
+/// and, while a terminal column stands in the editor's place, in that column's
+/// tab bar, where the editor's own row is out of sight. The same size in both,
+/// so it does not grow with whichever bar it happens to sit on.
+pub fn render_right_side_mode(right_side_terminal: bool, cx: &mut App) -> gpui::Stateful<Div> {
     let colors = cx.theme().colors().clone();
     // Well clear of the bar it sits on, in a light theme and a dark one: the
     // mode in use has to read at a glance, and the icons stay plain.
     let plate = ui::arcoscope_lighten(colors.tab_bar_background, 0.6);
-    let mut side = |id: &'static str,
-                    icon: IconName,
-                    active: bool,
-                    tooltip: &'static str,
-                    face: Option<gpui::AnyElement>| {
+    let side = |icon: IconName, active: bool| {
         div()
-            .id(id)
-            .relative()
-            .flex_none()
-            .w(segment.width)
-            .h(segment.height)
+            .w(RIGHT_SIDE_MODE_SEGMENT)
+            .h(RIGHT_SIDE_MODE_SEGMENT)
             .flex()
             .items_center()
             .justify_center()
-            .cursor_pointer()
-            .tooltip(Tooltip::text(tooltip))
-            // The action lives in the `ghostty_terminal` crate, which depends
-            // on `workspace`; build it by name to avoid the cycle.
-            .on_click(|_, window, cx| {
-                if let Some(action) = cx
-                    .build_action("ghostty_terminal::ToggleRightSideTerminal", None)
-                    .log_err()
-                {
-                    window.dispatch_action(action, cx);
-                }
-            })
-            .children(face)
             .child(
                 div()
                     .w(px(22.))
@@ -3893,25 +3863,40 @@ pub fn render_right_side_mode(
                     .child(Icon::new(icon).size(IconSize::Small).color(Color::Default)),
             )
     };
-    // A face each, built separately: the surface element cannot be shared.
-    let editor_face = ui::arcoscope_skin_surface("button", cx);
-    let terminal_face = ui::arcoscope_skin_surface("button", cx);
-    h_flex()
-        .child(side(
-            "right-side-editor",
-            IconName::FileCode,
-            !right_side_terminal,
-            "Editor on the Right",
-            editor_face,
-        ))
-        .child(side(
-            "right-side-terminal",
-            IconName::Terminal,
-            right_side_terminal,
-            "Terminal on the Right",
-            terminal_face,
-        ))
+    let tooltip = if right_side_terminal {
+        "Editor on the Right"
+    } else {
+        "Terminal on the Right"
+    };
+    div()
+        .id("right-side-mode")
+        .relative()
+        .flex_none()
+        .cursor_pointer()
+        .tooltip(Tooltip::text(tooltip))
+        // The action lives in the `ghostty_terminal` crate, which depends on
+        // `workspace`; build it by name to avoid the cycle.
+        .on_click(|_, window, cx| {
+            if let Some(action) = cx
+                .build_action("ghostty_terminal::ToggleRightSideTerminal", None)
+                .log_err()
+            {
+                window.dispatch_action(action, cx);
+            }
+        })
+        .children(
+            ui::arcoscope_skin_surface("nav_button", cx)
+                .or_else(|| ui::arcoscope_skin_surface("button", cx)),
+        )
+        .child(
+            h_flex()
+                .child(side(IconName::FileCode, !right_side_terminal))
+                .child(side(IconName::Terminal, right_side_terminal)),
+        )
 }
+
+/// One side of the editor/terminal control, the size of a nav button.
+pub const RIGHT_SIDE_MODE_SEGMENT: Pixels = px(32.);
 
 /// How far the editor/terminal control stands off the window's right edge, the
 /// same wherever it is drawn.
