@@ -1195,6 +1195,7 @@ fn new_window(directory: &str, title: &str, cx: &mut AsyncApp) -> String {
 fn columns_of_worktree(path: &Path, cx: &App) -> Vec<Entity<TerminalColumn>> {
     let mut columns: Vec<_> = TerminalColumns::all(cx)
         .into_iter()
+        .filter(|column| TerminalColumns::counts_for_scope(column, cx))
         .filter(|column| {
             column
                 .read(cx)
@@ -1435,12 +1436,16 @@ fn columns_in_scope(scope: &str, cx: &App) -> Vec<Entity<TerminalColumn>> {
             .into_iter()
             .chain(TerminalColumns::current_trailing(cx))
             .collect(),
-        "*" => TerminalColumns::all(cx),
+        "*" => TerminalColumns::all(cx)
+            .into_iter()
+            .filter(|column| TerminalColumns::counts_for_scope(column, cx))
+            .collect(),
         path => {
             let root = normalize(path);
             let of_worktree = |exact: bool| -> Vec<Entity<TerminalColumn>> {
                 TerminalColumns::all(cx)
                     .into_iter()
+                    .filter(|column| TerminalColumns::counts_for_scope(column, cx))
                     .filter(|column| {
                         column.read(cx).workspace_path().is_some_and(|own| {
                             if exact {

@@ -133,6 +133,20 @@ impl TerminalColumns {
             .unwrap_or_default()
     }
 
+    /// Whether `column`'s tabs are part of its worktree's tab list right now.
+    /// A trailing column outlives the mode that made it: its tabs stay open
+    /// while the right side shows the editor again, and counting them there
+    /// would let a step through the tabs land on one and turn the mode back on.
+    pub fn counts_for_scope(column: &Entity<TerminalColumn>, cx: &App) -> bool {
+        if Self::side_of(column, cx) == ColumnSide::Leading {
+            return true;
+        }
+        column
+            .read(cx)
+            .workspace_path()
+            .is_some_and(|path| Self::right_side_terminal_in(&Self::scope_root(path), cx))
+    }
+
     pub fn side_of(column: &Entity<TerminalColumn>, cx: &App) -> ColumnSide {
         cx.try_global::<TerminalColumns>()
             .and_then(|columns| {
@@ -255,7 +269,15 @@ pub fn sync(
     // belongs to the same worktree as the one on the left, so both halves of
     // the window show the same scope. The mode is the scope's own, so a switch
     // to another project leaves this one as it was.
-    let trailing = TerminalColumns::right_side_terminal(cx)
+    // The scope of the column about to be shown, not of the one on screen: on
+    // a switch the global current is still the old one, and reading the mode
+    // off it showed the scope being left's right side on the one arrived at.
+    let scope = shown
+        .as_ref()
+        .and_then(|column| column.read(cx).workspace_path().cloned())
+        .map(|path| TerminalColumns::scope_root(&path));
+    let trailing = scope
+        .is_some_and(|scope| TerminalColumns::right_side_terminal_in(&scope, cx))
         .then(|| {
             let owner = shown.as_ref()?.read(cx).workspace().clone();
             Some(trailing_column(&owner, window, cx))
