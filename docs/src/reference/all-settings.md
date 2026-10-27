@@ -2038,11 +2038,7 @@ The result is still `)))` and not `))))))`, which is what it would be by default
     "**/.DS_Store",
     "**/Thumbs.db",
     "**/.classpath",
-    "**/.settings",
-    "**/target",
-    "**/node_modules",
-    "**/.venv",
-    "**/__pycache__"
+    "**/.settings"
   ]
 }
 ```

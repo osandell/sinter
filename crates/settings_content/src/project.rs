@@ -134,11 +134,7 @@ pub struct WorktreeSettingsContent {
     ///   "**/.DS_Store",
     ///   "**/Thumbs.db",
     ///   "**/.classpath",
-    ///   "**/.settings",
-    ///   "**/target",
-    ///   "**/node_modules",
-    ///   "**/.venv",
-    ///   "**/__pycache__"
+    ///   "**/.settings"
     /// ]
     pub file_scan_exclusions: Option<Vec<String>>,
 
