@@ -115,6 +115,10 @@ impl RenderOnce for TabBar {
         } else {
             background.into()
         };
+        // A window skin draws the bar's bottom rule itself, in its own colour.
+        // Adding one here as well stacked two lines, which read as a thick,
+        // muddy rule and left the bar a pixel shorter than an unskinned one.
+        let skinned = crate::has_arcoscope_skin("tab_bar", cx);
         div()
             .id(self.id)
             .group("tab_bar")
@@ -132,7 +136,7 @@ impl RenderOnce for TabBar {
                         .flex_none()
                         .gap(DynamicSpacing::Base04.rems(cx))
                         .px(DynamicSpacing::Base06.rems(cx))
-                        .border_b_1()
+                        .when(!skinned, |this| this.border_b_1())
                         .border_r_1()
                         .border_color(border)
                         .children(self.start_children),
@@ -150,7 +154,7 @@ impl RenderOnce for TabBar {
                             .top_0()
                             .left_0()
                             .size_full()
-                            .border_b_1()
+                            .when(!skinned, |this| this.border_b_1())
                             .border_color(border),
                     )
                     .child(
@@ -171,7 +175,7 @@ impl RenderOnce for TabBar {
                         .gap(DynamicSpacing::Base04.rems(cx))
                         .px(DynamicSpacing::Base06.rems(cx))
                         .border_color(border)
-                        .border_b_1()
+                        .when(!skinned, |this| this.border_b_1())
                         .border_l_1()
                         .children(self.end_children),
                 )

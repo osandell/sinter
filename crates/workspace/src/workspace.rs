@@ -8089,8 +8089,13 @@ impl Workspace {
                         .when_some(strip_glow, |this, glow| {
                             this.child(ui::arcoscope_split_overlay(glow))
                         })
-                        .border_b_1()
-                        .border_color(strip_border)
+                        // The skin's own tab-bar surface already rules off the
+                        // strip; a border here as well stacked two lines and
+                        // pushed the buttons a pixel up from where the terminal
+                        // column's are.
+                        .when(!ui::has_arcoscope_skin("tab_bar", cx), |this| {
+                            this.border_b_1().border_color(strip_border)
+                        })
                         .flex()
                         .items_center()
                         .justify_end()
