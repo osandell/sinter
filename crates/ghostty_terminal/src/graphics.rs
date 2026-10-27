@@ -495,6 +495,19 @@ pub fn vector_robot(color: Rgba, canvas: f64, scale: f32) -> Option<Bitmap> {
     })
 }
 
+/// The button that puts the editor back where a trailing terminal column
+/// stands: a page with its lines, outlined like `vector_terminal`.
+pub fn vector_editor(color: Rgba, canvas: f64, scale: f32) -> Option<Bitmap> {
+    let key = format!("vector-editor:{:06x}:{canvas}:{scale}", color_key(color));
+    cached(key, || {
+        let color = svg_color(color);
+        let svg = format!(
+            r#"<svg xmlns="http://www.w3.org/2000/svg" width="{canvas}" height="{canvas}" viewBox="0 0 16 16"><rect x="2.7" y="1.9" width="10.6" height="12.2" rx="1.8" fill="none" stroke="{color}" stroke-width="1.4"/><path d="M5.3 5.2h5.4M5.3 8h5.4M5.3 10.8h3.2" fill="none" stroke="{color}" stroke-width="1.2" stroke-linecap="round"/></svg>"#
+        );
+        rasterize_svg(&svg, canvas, scale)
+    })
+}
+
 /// Blends `a` toward `b` by `amount`.
 pub fn mix(a: Rgba, b: Rgba, amount: f32) -> Rgba {
     Rgba {

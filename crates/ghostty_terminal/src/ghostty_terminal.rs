@@ -41,7 +41,7 @@ mod sheets;
 #[path = "linux_ffi.rs"]
 mod ffi;
 
-pub use columns::TerminalColumns;
+pub use columns::{ColumnSide, TerminalColumns};
 pub use terminal_column::{
     ClaudeState, PickWorktree, TerminalColumn, TerminalColumnEvent, TerminalTab, worktree_split,
 };
@@ -50,6 +50,7 @@ use gpui::{App, AppContext as _, Context, Entity, Focusable as _, Window, action
 use std::path::PathBuf;
 use gpui::WeakEntity;
 use workspace::Workspace;
+use util::ResultExt as _;
 
 #[cfg(target_os = "macos")]
 #[path = "terminal_mac.rs"]
@@ -79,6 +80,9 @@ actions!(
         /// Opens a tab in the terminal column running the default agent
         /// (`agent.command` in arcoscope's settings.json, else `claude`).
         NewAgentTab,
+        /// Switches the right side of the window between the editor and a
+        /// terminal column of its own.
+        ToggleRightSideTerminal,
     ]
 );
 
@@ -90,8 +94,55 @@ fn column_of(workspace: &Workspace) -> Option<Entity<TerminalColumn>> {
         .ok()
 }
 
-/// Moves the keyboard to the workspace's active editor (or pane).
+/// The terminal column standing where the editor is, while the right side is
+/// in terminal mode.
+fn trailing_column_of(workspace: &Workspace) -> Option<Entity<TerminalColumn>> {
+    workspace
+        .trailing_column()?
+        .clone()
+        .downcast::<TerminalColumn>()
+        .ok()
+}
+
+/// The right side shows a terminal column instead of the editor.
+pub fn right_side_terminal(cx: &App) -> bool {
+    TerminalColumns::right_side_terminal(cx)
+}
+
+/// Puts the right side of the window in terminal mode, or back to the editor.
+/// The work is deferred: this is called from a click inside a column and from
+/// arcoscope's socket, and the sync it needs updates both.
+pub fn set_right_side_terminal(on: bool, cx: &mut App) {
+    if TerminalColumns::right_side_terminal(cx) == on {
+        return;
+    }
+    TerminalColumns::set_right_side_terminal(on, cx);
+    let Some(window) = workspace::unified_window_handle(cx) else {
+        return;
+    };
+    cx.defer(move |cx| {
+        window
+            .update(cx, |multi_workspace, window, cx| {
+                columns::sync(multi_workspace, window, cx);
+                let workspace = multi_workspace.workspace().clone();
+                // The keyboard goes to the right side either way: it is the
+                // terminal column now, or the editor again.
+                workspace.update(cx, |workspace, cx| {
+                    focus_editor(workspace, window, cx);
+                });
+            })
+            .log_err();
+    });
+}
+
+/// Moves the keyboard to the right side of the window: the editor, or the
+/// terminal column standing in its place. The mode itself is not changed;
+/// only `set_right_side_terminal` does that.
 pub fn focus_editor(workspace: &mut Workspace, window: &mut Window, cx: &mut Context<Workspace>) {
+    if trailing_column_of(workspace).is_some() {
+        focus_trailing_terminal(workspace, window, cx);
+        return;
+    }
     if let Some(column) = column_of(workspace) {
         let layout = column.update(cx, |column, cx| column.prepare_side(false, cx));
         workspace.set_leading_column_layout(layout, cx);
@@ -170,14 +221,71 @@ pub fn set_fullscreen(
     }
 }
 
-/// Moves the keyboard to the terminal column. In fullscreen the column is
-/// laid out first, since a hidden column cannot take focus.
+/// Moves the keyboard to the terminal column on the left. In fullscreen the
+/// column is laid out first, since a hidden column cannot take focus.
 pub fn focus_terminal(workspace: &mut Workspace, window: &mut Window, cx: &mut Context<Workspace>) {
     if let Some(column) = column_of(workspace) {
         let layout = column.update(cx, |column, cx| column.prepare_side(true, cx));
         workspace.set_leading_column_layout(layout, cx);
         window.focus(&column.focus_handle(cx), cx);
     }
+}
+
+/// Moves the keyboard to the terminal column it was in last: the right side
+/// when that is a terminal and was where the keyboard came from, the left one
+/// otherwise. arcoscope's terminal key and its dock entry land here.
+pub fn focus_last_terminal(
+    workspace: &mut Workspace,
+    window: &mut Window,
+    cx: &mut Context<Workspace>,
+) {
+    if TerminalColumns::last_focused_is_trailing(cx) && trailing_column_of(workspace).is_some() {
+        focus_trailing_terminal(workspace, window, cx);
+        return;
+    }
+    focus_terminal(workspace, window, cx);
+}
+
+/// Moves the keyboard to the terminal column on the right. The column on the
+/// left gives up its claim first, so a fullscreen window shows this side.
+fn focus_trailing_terminal(
+    workspace: &mut Workspace,
+    window: &mut Window,
+    cx: &mut Context<Workspace>,
+) {
+    let Some(trailing) = trailing_column_of(workspace) else {
+        return;
+    };
+    if let Some(leading) = column_of(workspace) {
+        let layout = leading.update(cx, |column, _| column.release_keyboard());
+        workspace.set_leading_column_layout(layout, cx);
+    }
+    trailing.update(cx, |column, cx| column.prepare_trailing_side(cx));
+    window.focus(&trailing.focus_handle(cx), cx);
+}
+
+/// The terminal column a new tab belongs in: the one with the keyboard, else
+/// the left one, which is shown and focused first.
+fn focused_column(
+    workspace: &mut Workspace,
+    window: &mut Window,
+    cx: &mut Context<Workspace>,
+) -> Option<Entity<TerminalColumn>> {
+    let trailing = trailing_column_of(workspace);
+    let in_trailing = trailing.as_ref().is_some_and(|column| {
+        column
+            .read(cx)
+            .focus_handle_ref()
+            .contains_focused(window, cx)
+    });
+    if in_trailing {
+        return trailing;
+    }
+    focus_terminal(workspace, window, cx);
+    if trailing.is_some() && TerminalColumns::last_focused_is_trailing(cx) {
+        return trailing;
+    }
+    column_of(workspace)
 }
 
 pub use arcoscope::owns_scopes;
@@ -195,9 +303,16 @@ pub fn init(cx: &mut App) {
         if workspace.project().read(cx).is_local() {
             let handle = cx.entity().downgrade();
             let project = workspace.project().clone();
-            let column =
-                cx.new(|cx| TerminalColumn::new(handle.clone(), Some(project), window, cx));
-            TerminalColumns::register(handle, column.clone(), cx);
+            let column = cx.new(|cx| {
+                TerminalColumn::new(
+                    handle.clone(),
+                    ColumnSide::Leading,
+                    Some(project),
+                    window,
+                    cx,
+                )
+            });
+            TerminalColumns::register(handle, ColumnSide::Leading, column.clone(), cx);
             arcoscope::watch_column(&column, cx);
             workspace.set_leading_column(Some(column.into()), cx);
             cx.on_release(|_, cx| {
@@ -224,17 +339,18 @@ pub fn init(cx: &mut App) {
         workspace.register_action(|workspace, _: &FocusEditor, window, cx| {
             focus_editor(workspace, window, cx);
         });
+        workspace.register_action(|_, _: &ToggleRightSideTerminal, _, cx| {
+            set_right_side_terminal(!TerminalColumns::right_side_terminal(cx), cx);
+        });
         // From the command palette, with the keyboard anywhere: the column is
         // shown and gets the new tab (and the keyboard).
         workspace.register_action(|workspace, _: &NewShellTab, window, cx| {
-            if let Some(column) = column_of(workspace) {
-                focus_terminal(workspace, window, cx);
+            if let Some(column) = focused_column(workspace, window, cx) {
                 column.update(cx, |column, cx| column.new_tab_following_worktree(window, cx));
             }
         });
         workspace.register_action(|workspace, _: &NewAgentTab, window, cx| {
-            if let Some(column) = column_of(workspace) {
-                focus_terminal(workspace, window, cx);
+            if let Some(column) = focused_column(workspace, window, cx) {
                 column.update(cx, |column, cx| column.new_agent_tab(window, cx));
             }
         });

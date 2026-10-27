@@ -128,8 +128,19 @@ pub enum OpenRequestKind {
         /// arcoscope need not send a key chord after the window came up.
         editor: bool,
         /// `&terminal=1`: with `focus`, move the keyboard to the terminal
-        /// column instead.
+        /// column it was in last, which can be the one on the right.
         terminal: bool,
+        /// `&mode=editor`: put the right side back to the editor if it is
+        /// showing a terminal column, before the keyboard goes there. Sent by
+        /// arcoscope's dock entry for the editor, where the editor itself was
+        /// what was clicked; the editor key leaves the mode alone.
+        editor_mode: bool,
+    },
+    /// arcoscope: what the right side of the window shows, the editor or a
+    /// terminal column of its own.
+    ArcoscopeRightSide {
+        /// `None` toggles.
+        terminal: Option<bool>,
     },
     /// arcoscope's q+f: fullscreen for the worktree `path`, on the side (terminal
     /// or editor) that has the keyboard.
@@ -241,11 +252,17 @@ impl std::fmt::Debug for OpenRequestKind {
                 focus,
                 editor,
                 terminal,
+                editor_mode,
             } => f
                 .debug_struct("ArcoscopeRaise")
                 .field("path", path)
                 .field("focus", focus)
                 .field("editor", editor)
+                .field("terminal", terminal)
+                .field("editor_mode", editor_mode)
+                .finish(),
+            Self::ArcoscopeRightSide { terminal } => f
+                .debug_struct("ArcoscopeRightSide")
                 .field("terminal", terminal)
                 .finish(),
             Self::ArcoscopeFullscreen {
@@ -424,12 +441,28 @@ impl OpenRequest {
                 };
                 let editor = flag("editor");
                 let terminal = flag("terminal");
+                let editor_mode = url::form_urlencoded::parse(query.as_bytes())
+                    .any(|(key, value)| key == "mode" && value == "editor");
                 this.kind = Some(OpenRequestKind::ArcoscopeRaise {
                     path,
                     focus,
                     editor,
                     terminal,
+                    editor_mode,
                 });
+            } else if let Some(query) = url.strip_prefix("zed://arcoscope/right-side?") {
+                let mode = url::form_urlencoded::parse(query.as_bytes())
+                    .find(|(key, _)| key == "mode")
+                    .map(|(_, value)| value.into_owned());
+                let terminal = match mode.as_deref() {
+                    Some("terminal") => Some(true),
+                    Some("editor") => Some(false),
+                    Some("toggle") | None => None,
+                    Some(other) => anyhow::bail!(
+                        "zed://arcoscope/right-side: mode={other}, not terminal, editor or toggle"
+                    ),
+                };
+                this.kind = Some(OpenRequestKind::ArcoscopeRightSide { terminal });
             } else if let Some(query) = url.strip_prefix("zed://arcoscope/terminal-width?") {
                 let width = url::form_urlencoded::parse(query.as_bytes())
                     .find(|(k, _)| k == "width")

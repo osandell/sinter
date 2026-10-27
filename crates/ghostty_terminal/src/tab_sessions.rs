@@ -93,37 +93,30 @@ fn directory() -> PathBuf {
     paths::home_dir().join(".config/ghostty/tab-sessions")
 }
 
-fn file_for(workspace: &Path) -> PathBuf {
-    let slug = workspace.to_string_lossy().replace('/', "-");
+/// `key` is the worktree's path, with `#right` appended for the column on the
+/// right side of the window, which keeps its own tabs.
+fn file_for(key: &str) -> PathBuf {
+    let slug = key.replace('/', "-");
     directory().join(format!("{slug}.json"))
 }
 
-/// The saved tabs of `workspace`, once per workspace per run. Also marks the
-/// workspace as restored, which is what lets `save` write it from now on. A
+/// The saved tabs of the column `key` names, once per key per run. Also marks
+/// the key as restored, which is what lets `save` write it from now on. A
 /// snapshot with no tabs is a column whose last tab was closed.
-pub fn take_restore(workspace: &Path, column: EntityId) -> Option<Snapshot> {
-    let key = workspace.to_string_lossy().into_owned();
+pub fn take_restore(key: &str, column: EntityId) -> Option<Snapshot> {
     {
         let mut state = STATE.lock();
-        if !state.restored.insert(key.clone()) {
-            if state.owners.get(&key) != Some(&column) {
-                log::warn!(
-                    "a second terminal column for {}: it will not save tab sessions",
-                    workspace.display()
-                );
+        if !state.restored.insert(key.to_owned()) {
+            if state.owners.get(key) != Some(&column) {
+                log::warn!("a second terminal column for {key}: it will not save tab sessions");
             }
             return None;
         }
-        state.owners.insert(key, column);
+        state.owners.insert(key.to_owned(), column);
     }
-    let data = std::fs::read(file_for(workspace)).ok()?;
+    let data = std::fs::read(file_for(key)).ok()?;
     let snapshot: Snapshot = serde_json::from_slice(&data)
-        .inspect_err(|error| {
-            log::warn!(
-                "unreadable tab sessions for {}: {error}",
-                workspace.display()
-            )
-        })
+        .inspect_err(|error| log::warn!("unreadable tab sessions for {key}: {error}"))
         .ok()?;
     Some(snapshot)
 }
@@ -132,10 +125,9 @@ pub fn save(column: &TerminalColumn, cx: &mut Context<TerminalColumn>) {
     if QUITTING.load(std::sync::atomic::Ordering::SeqCst) {
         return;
     }
-    let Some(workspace) = column.workspace_path() else {
+    let Some(key) = column.session_key() else {
         return;
     };
-    let key = workspace.to_string_lossy().into_owned();
     {
         let mut state = STATE.lock();
         if !state.restored.contains(&key) {
@@ -212,13 +204,13 @@ pub fn save(column: &TerminalColumn, cx: &mut Context<TerminalColumn>) {
         if state.last_written.get(&key) == Some(&stable) {
             return;
         }
-        state.last_written.insert(key, stable);
+        state.last_written.insert(key.clone(), stable);
     }
     snapshot.updated = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|duration| duration.as_secs_f64())
         .unwrap_or_default();
-    let path = file_for(workspace);
+    let path = file_for(&key);
     cx.background_spawn(async move {
         if let Err(error) = write_atomically(&path, &snapshot) {
             log::warn!(

@@ -662,7 +662,7 @@ async fn handle_control(line: &str, cx: &mut AsyncApp) -> String {
         }),
         "list-windows" => cx.update(|cx| {
             let mut reply = "windows".to_string();
-            for column in TerminalColumns::all(cx) {
+            for column in TerminalColumns::leading(cx) {
                 if let Some(path) = column.read(cx).workspace_path() {
                     reply.push('\t');
                     reply.push_str(&path.compact().to_string_lossy());
@@ -903,22 +903,26 @@ async fn handle_control(line: &str, cx: &mut AsyncApp) -> String {
             };
             let tab_id = target.parse::<u64>().ok();
             cx.update(|cx| {
-                let Some(column) = TerminalColumns::column_for_path(&normalize(title), cx) else {
+                let columns = columns_of_worktree(&normalize(title), cx);
+                if columns.is_empty() {
                     return "no-window".into();
-                };
-                let Some((tab_id, terminal)) = column
-                    .read(cx)
-                    .tabs()
-                    .iter()
-                    .find(|tab| match tab_id {
-                        Some(id) => tab.id() == id,
-                        None => tab.claude_session.as_deref() == Some(target),
-                    })
-                    .and_then(|tab| Some((tab.id(), tab.focused_terminal()?)))
-                else {
+                }
+                let found = columns.into_iter().find_map(|column| {
+                    let (id, terminal) = column
+                        .read(cx)
+                        .tabs()
+                        .iter()
+                        .find(|tab| match tab_id {
+                            Some(id) => tab.id() == id,
+                            None => tab.claude_session.as_deref() == Some(target),
+                        })
+                        .and_then(|tab| Some((tab.id(), tab.focused_terminal()?)))?;
+                    Some((column, id, terminal))
+                });
+                let Some((column, tab_id, terminal)) = found else {
                     return "no-tab".into();
                 };
-                show_terminal(&column, true, cx);
+                show_column(&column, true, cx);
                 focus_tab_terminal(&column, tab_id, &terminal, cx);
                 follow_in_arcoscope(&column, cx);
                 "focused".into()
@@ -933,19 +937,23 @@ async fn handle_control(line: &str, cx: &mut AsyncApp) -> String {
             };
             let tab_id = target.parse::<u64>().ok();
             cx.update(|cx| {
-                let Some(column) = TerminalColumns::column_for_path(&normalize(title), cx) else {
+                let columns = columns_of_worktree(&normalize(title), cx);
+                if columns.is_empty() {
                     return "no-window".into();
-                };
-                let Some(id) = column
-                    .read(cx)
-                    .tabs()
-                    .iter()
-                    .find(|tab| match tab_id {
-                        Some(id) => tab.id() == id,
-                        None => tab.claude_session.as_deref() == Some(target),
-                    })
-                    .map(|tab| tab.id())
-                else {
+                }
+                let found = columns.into_iter().find_map(|column| {
+                    let id = column
+                        .read(cx)
+                        .tabs()
+                        .iter()
+                        .find(|tab| match tab_id {
+                            Some(id) => tab.id() == id,
+                            None => tab.claude_session.as_deref() == Some(target),
+                        })
+                        .map(|tab| tab.id())?;
+                    Some((column, id))
+                });
+                let Some((column, id)) = found else {
                     return "no-tab".into();
                 };
                 if column.update(cx, |column, cx| column.acknowledge_done(id, cx)) {
@@ -1151,6 +1159,51 @@ fn new_window(directory: &str, title: &str, cx: &mut AsyncApp) -> String {
     })
 }
 
+/// Both terminal columns of the worktree at `path`, left first: one tab list
+/// per side, and a tab verb names a tab in either.
+fn columns_of_worktree(path: &Path, cx: &App) -> Vec<Entity<TerminalColumn>> {
+    let mut columns: Vec<_> = TerminalColumns::all(cx)
+        .into_iter()
+        .filter(|column| {
+            column
+                .read(cx)
+                .workspace_path()
+                .is_some_and(|own| own == path)
+        })
+        .collect();
+    columns.sort_by_key(|column| TerminalColumns::side_of(column, cx) == crate::ColumnSide::Trailing);
+    columns
+}
+
+/// `show_terminal` for a column on either side: a trailing one is shown by
+/// showing its worktree, and takes the keyboard as the right side.
+fn show_column(column: &Entity<TerminalColumn>, focus: bool, cx: &mut App) {
+    if TerminalColumns::side_of(column, cx) == crate::ColumnSide::Leading {
+        show_terminal(column, focus, cx);
+        return;
+    }
+    if let Some(path) = column.read(cx).workspace_path().cloned()
+        && let Some(leading) = TerminalColumns::column_for_path(&path, cx)
+    {
+        TerminalColumns::set_current(&leading, cx);
+    }
+    if !focus {
+        return;
+    }
+    let Some(window) = workspace::unified_window_handle(cx) else {
+        return;
+    };
+    window
+        .update(cx, |multi_workspace, window, cx| {
+            window.activate_window();
+            multi_workspace.workspace().update(cx, |workspace, cx| {
+                crate::focus_editor(workspace, window, cx);
+            });
+        })
+        .ok();
+    cx.activate(true);
+}
+
 /// Shows `column` in the window; with `focus`, also gives it the keyboard
 /// and makes the app active.
 fn show_terminal(column: &Entity<TerminalColumn>, focus: bool, cx: &mut App) {
@@ -1344,24 +1397,35 @@ fn pick_worktree(path: &Path, cx: &mut App) -> String {
 /// project root (an arcoscope scope).
 fn columns_in_scope(scope: &str, cx: &App) -> Vec<Entity<TerminalColumn>> {
     match scope {
-        "-" => TerminalColumns::current(cx).into_iter().collect(),
+        "-" => TerminalColumns::current(cx)
+            .into_iter()
+            .chain(TerminalColumns::current_trailing(cx))
+            .collect(),
         "*" => TerminalColumns::all(cx),
         path => {
             let root = normalize(path);
+            let of_worktree = |exact: bool| -> Vec<Entity<TerminalColumn>> {
+                TerminalColumns::all(cx)
+                    .into_iter()
+                    .filter(|column| {
+                        column.read(cx).workspace_path().is_some_and(|own| {
+                            if exact {
+                                own == &root
+                            } else {
+                                own.starts_with(&root)
+                            }
+                        })
+                    })
+                    .collect()
+            };
             // `~/dev/aixia-projects` is a scope of its own as well as the
-            // parent of others: an exact match means only that column.
-            if let Some(column) = TerminalColumns::column_for_path(&root, cx) {
-                return vec![column];
+            // parent of others: an exact match means only that worktree, both
+            // of its sides.
+            let exact = of_worktree(true);
+            if !exact.is_empty() {
+                return exact;
             }
-            TerminalColumns::all(cx)
-                .into_iter()
-                .filter(|column| {
-                    column
-                        .read(cx)
-                        .workspace_path()
-                        .is_some_and(|own| own.starts_with(&root))
-                })
-                .collect()
+            of_worktree(false)
         }
     }
 }
@@ -1377,7 +1441,9 @@ fn claude_state_name(state: ClaudeState) -> &'static str {
 }
 
 fn describe_tabs(column: &Entity<TerminalColumn>, cx: &App) -> Vec<serde_json::Value> {
-    let current = TerminalColumns::current(cx).is_some_and(|current| &current == column);
+    let current = TerminalColumns::current(cx).is_some_and(|current| &current == column)
+        || TerminalColumns::current_trailing(cx).is_some_and(|current| &current == column);
+    let side = TerminalColumns::side_of(column, cx);
     let column = column.read(cx);
     let window = column
         .workspace_path()
@@ -1396,6 +1462,12 @@ fn describe_tabs(column: &Entity<TerminalColumn>, cx: &App) -> Vec<serde_json::V
             let info = tab.session_info.as_ref();
             serde_json::json!({
                 "window": window,
+                // Which half of the window the column stands in: a worktree has
+                // one tab list per side, and `left` is the only one there was.
+                "side": match side {
+                    crate::ColumnSide::Leading => "left",
+                    crate::ColumnSide::Trailing => "right",
+                },
                 "index": index,
                 "id": tab.id(),
                 "selected": index == column.selected_index(),

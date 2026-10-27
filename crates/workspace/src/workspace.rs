@@ -1395,6 +1395,9 @@ pub struct Workspace {
     /// the embedded terminal column.
     leading_column: Option<AnyView>,
     leading_column_layout: LeadingColumnLayout,
+    /// A terminal column drawn where the editor is, full height, when the
+    /// right side is in terminal mode. The editor stays mounted behind it.
+    trailing_column: Option<AnyView>,
     /// Set for the workspaces of the unified window that are not on screen.
     hidden_in_window: bool,
     notifications: Notifications,
@@ -1844,6 +1847,7 @@ impl Workspace {
             titlebar_item: None,
             leading_column: None,
             leading_column_layout: LeadingColumnLayout::default(),
+            trailing_column: None,
             hidden_in_window: false,
             notifications: Notifications::default(),
             suppressed_notifications: HashSet::default(),
@@ -3049,6 +3053,22 @@ impl Workspace {
     pub fn set_leading_column(&mut self, column: Option<AnyView>, cx: &mut Context<Self>) {
         self.leading_column = column;
         cx.notify();
+    }
+
+    /// The terminal column that takes the editor's place while the right side
+    /// is in terminal mode; `None` puts the editor back.
+    pub fn set_trailing_column(&mut self, column: Option<AnyView>, cx: &mut Context<Self>) {
+        if self.trailing_column.as_ref().map(AnyView::entity_id)
+            == column.as_ref().map(AnyView::entity_id)
+        {
+            return;
+        }
+        self.trailing_column = column;
+        cx.notify();
+    }
+
+    pub fn trailing_column(&self) -> Option<&AnyView> {
+        self.trailing_column.as_ref()
     }
 
     pub fn set_leading_column_layout(
@@ -8825,6 +8845,10 @@ impl Render for Workspace {
 
         let layout = self.leading_column_layout;
         let hide_editor = self.leading_column.is_some() && layout == LeadingColumnLayout::Full;
+        // The right side in terminal mode: its column takes the editor's place.
+        // The editor itself stays in the tree, hidden, so its panes, panels and
+        // modals keep their focus handles and come back as they were.
+        let trailing_column = self.trailing_column.clone().filter(|_| !hide_editor);
         // A skin may frame the terminal column and the editor side as two windows
         // of their own: `terminal_window` round the one, `editor_window` round the
         // other, each padded in by its surface.
@@ -8877,6 +8901,17 @@ impl Render for Workspace {
             ),
             LeadingColumnLayout::Hidden => None,
         });
+        // Built here, while `framed` still holds its borrow of `cx`; it is the
+        // last child of the row.
+        let trailing_half = trailing_column.map(|column| {
+            framed(div(), "editor_window")
+                .size_full()
+                .flex()
+                .flex_col()
+                .overflow_hidden()
+                .child(column)
+        });
+        let right_is_terminal = trailing_half.is_some();
         h_flex()
             .relative()
             .size_full()
@@ -9350,8 +9385,9 @@ impl Render for Workspace {
                                 })
                         }
                     })
-                    .when(hide_editor, |this| this.hidden()),
+                    .when(hide_editor || right_is_terminal, |this| this.hidden()),
             )
+            .children(trailing_half)
     }
 }
 

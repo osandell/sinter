@@ -1695,15 +1695,32 @@ fn handle_open_request(request: OpenRequest, app_state: Arc<AppState>, cx: &mut 
                 })
                 .detach();
             }
+            OpenRequestKind::ArcoscopeRightSide { terminal } => {
+                #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+                let _ = terminal;
+                #[cfg(any(target_os = "macos", target_os = "linux"))]
+                {
+                    let on = terminal
+                        .unwrap_or(!ghostty_terminal::right_side_terminal(cx));
+                    ghostty_terminal::set_right_side_terminal(on, cx);
+                }
+            }
             OpenRequestKind::ArcoscopeRaise {
                 path,
                 focus,
                 editor,
                 terminal,
+                editor_mode,
             } => {
                 ui::set_arcoscope_empty(None, cx);
                 #[cfg(not(any(target_os = "macos", target_os = "linux")))]
-                let _ = (&path, focus, editor, terminal);
+                let _ = (&path, focus, editor, terminal, editor_mode);
+                #[cfg(any(target_os = "macos", target_os = "linux"))]
+                if editor_mode {
+                    // The dock's Editor: the editor itself was clicked, so a
+                    // right side showing a terminal column goes back to it.
+                    ghostty_terminal::set_right_side_terminal(false, cx);
+                }
                 #[cfg(any(target_os = "macos", target_os = "linux"))]
                 if let Some((mw, target_workspace)) = arcoscope_target(&path, cx) {
                     // orderFrontRegardless first, so the window is on top at once
@@ -1750,7 +1767,7 @@ fn handle_open_request(request: OpenRequest, app_state: Arc<AppState>, cx: &mut 
                                     // A full-window view keeps the keyboard while it is up.
                                 } else if terminal {
                                     target_workspace.update(cx, |workspace, cx| {
-                                        ghostty_terminal::focus_terminal(workspace, window, cx)
+                                        ghostty_terminal::focus_last_terminal(workspace, window, cx)
                                     });
                                 } else if editor && workspace::unified_window_enabled(cx) {
                                     // The editor may be hidden behind a

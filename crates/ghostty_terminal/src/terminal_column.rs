@@ -375,6 +375,10 @@ pub fn worktree_split(path: &Path) -> Option<(PathBuf, String, PathBuf)> {
 pub struct TerminalColumn {
     /// The workspace this column belongs to (its worktree).
     workspace: WeakEntity<Workspace>,
+    /// The half of the window this column is drawn in. Only the leading one
+    /// drives `LeadingColumnLayout` and answers for the worktree as one of
+    /// arcoscope's windows.
+    side: crate::ColumnSide,
     /// The workspace showing this column right now, which is another
     /// worktree's while the editor follows the work elsewhere.
     displayed_in: WeakEntity<Workspace>,
@@ -386,7 +390,6 @@ pub struct TerminalColumn {
     worktrees_dir: Option<PathBuf>,
     tabs: Vec<TerminalTab>,
     selected: usize,
-    next_tab_id: u64,
     /// The initial tabs have been opened (or scheduled). A column whose last
     /// tab was closed stays empty instead of opening a fresh one.
     started: bool,
@@ -416,6 +419,7 @@ pub struct TerminalColumn {
 impl TerminalColumn {
     pub fn new(
         workspace: WeakEntity<Workspace>,
+        side: crate::ColumnSide,
         project: Option<Entity<Project>>,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -445,6 +449,7 @@ impl TerminalColumn {
             }),
             // Fullscreen shows whichever side holds the keyboard.
             cx.on_focus_in(&focus_handle, window, |this, _window, cx| {
+                crate::TerminalColumns::set_last_focused(&cx.entity(), cx);
                 this.set_terminal_side(true, cx);
             }),
             // Losing focus is only reported once it has settled. A workspace
@@ -456,8 +461,20 @@ impl TerminalColumn {
                 cx.spawn_in(window, async move |this, cx| {
                     cx.background_executor().timer(FOCUS_OUT_SETTLE).await;
                     this.update_in(cx, |this, window, cx| {
-                        if window.is_window_active() && !ui::arcoscope_terminal_focused(window, cx) {
+                        if !window.is_window_active() {
+                            return;
+                        }
+                        if !ui::arcoscope_terminal_focused(window, cx) {
                             this.set_terminal_side(false, cx);
+                        } else if !this.is_trailing()
+                            && crate::TerminalColumns::last_focused_is_trailing(cx)
+                        {
+                            // The keyboard went to the terminal column on the
+                            // right: still a terminal, so arcoscope hears
+                            // nothing new, but this column no longer holds it,
+                            // which is what fullscreen follows.
+                            this.terminal_side = false;
+                            this.push_layout(cx);
                         }
                     })
                     .ok();
@@ -489,12 +506,12 @@ impl TerminalColumn {
         Self {
             displayed_in: workspace.clone(),
             workspace,
+            side,
             workspace_path: None,
             title_path: "👻".into(),
             worktrees_dir: None,
             tabs: Vec::new(),
             selected: 0,
-            next_tab_id: 0,
             started: false,
             focus_handle,
             bar_width: MAX_TAB_WIDTH + NEW_TAB_BUTTONS_WIDTH,
@@ -515,7 +532,13 @@ impl TerminalColumn {
 
     /// A column for `path` outside any workspace (examples and tests).
     pub fn for_path(path: PathBuf, window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let mut this = Self::new(WeakEntity::new_invalid(), None, window, cx);
+        let mut this = Self::new(
+            WeakEntity::new_invalid(),
+            crate::ColumnSide::Leading,
+            None,
+            window,
+            cx,
+        );
         this.title_path = path.compact().to_string_lossy().into_owned().into();
         this.worktrees_dir =
             worktree_split(&path).map(|(container, _, _)| container.join("worktrees"));
@@ -560,6 +583,34 @@ impl TerminalColumn {
 
     pub fn workspace(&self) -> &WeakEntity<Workspace> {
         &self.workspace
+    }
+
+    pub fn side(&self) -> crate::ColumnSide {
+        self.side
+    }
+
+    fn is_trailing(&self) -> bool {
+        self.side == crate::ColumnSide::Trailing
+    }
+
+    /// The window frame this column stands inside: the trailing one takes the
+    /// editor's place, and its frame with it.
+    fn frame_name(&self) -> &'static str {
+        if self.is_trailing() {
+            "editor_window"
+        } else {
+            "terminal_window"
+        }
+    }
+
+    /// The key this column's tabs are saved under. The two sides of a worktree
+    /// keep their own tabs, so neither restores the other's sessions.
+    pub(crate) fn session_key(&self) -> Option<String> {
+        let path = self.workspace_path.as_ref()?.to_string_lossy().into_owned();
+        Some(match self.side {
+            crate::ColumnSide::Leading => path,
+            crate::ColumnSide::Trailing => format!("{path}#right"),
+        })
     }
 
     fn sync_color_scheme(&self, window: &Window, _cx: &mut Context<Self>) {
@@ -620,9 +671,8 @@ impl TerminalColumn {
             unsafe { crate::sheets::remind_full_disk_access(ns_window) };
         }
         let snapshot = self
-            .workspace_path
-            .as_deref()
-            .and_then(|workspace| crate::tab_sessions::take_restore(workspace, cx.entity_id()));
+            .session_key()
+            .and_then(|key| crate::tab_sessions::take_restore(&key, cx.entity_id()));
         if let Some(snapshot) = snapshot {
             if snapshot.tabs.is_empty() {
                 return;
@@ -728,8 +778,10 @@ impl TerminalColumn {
         cx: &mut Context<Self>,
     ) -> Option<u64> {
         let terminal = self.open_terminal(options, window, cx)?;
-        let id = self.next_tab_id;
-        self.next_tab_id += 1;
+        // One series for the whole app: the two columns of a worktree are one
+        // window to arcoscope, and a tab id has to name exactly one tab in it.
+        static NEXT_TAB_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let id = NEXT_TAB_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         self.tabs.push(TerminalTab {
             id,
             tree: SplitNode::Leaf(terminal.clone()),
@@ -1518,6 +1570,21 @@ impl TerminalColumn {
         self.layout()
     }
 
+    /// The keyboard is about to go into this trailing column: arcoscope hears
+    /// `terminal`, since the right side is a terminal now.
+    pub fn prepare_trailing_side(&mut self, cx: &mut App) {
+        crate::arcoscope::report_side(true, cx);
+    }
+
+    /// This column is about to lose the keyboard to the other side. Returns
+    /// the layout that leaves, so a fullscreen window shows the other side
+    /// instead; arcoscope is told nothing, since the caller knows which half
+    /// the keyboard is going to.
+    pub fn release_keyboard(&mut self) -> LeadingColumnLayout {
+        self.terminal_side = false;
+        self.layout()
+    }
+
     fn set_terminal_side(&mut self, terminal_side: bool, cx: &mut Context<Self>) {
         log::info!(
             "arcoscope focus: keyboard to the {}",
@@ -1535,6 +1602,11 @@ impl TerminalColumn {
     }
 
     fn push_layout(&self, cx: &mut Context<Self>) {
+        // The trailing column stands where the editor does; it has no say in
+        // how wide the leading one is.
+        if self.is_trailing() {
+            return;
+        }
         let layout = self.layout();
         self.displayed_in
             .update(cx, |workspace, cx| {
@@ -1959,7 +2031,12 @@ impl TerminalColumn {
 
     fn tab_width(&self) -> f32 {
         let count = self.tabs.len().max(1) as f32;
-        let available = (self.bar_width - NEW_TAB_BUTTONS_WIDTH).max(0.);
+        let buttons = if self.is_trailing() {
+            NEW_TAB_BUTTONS_WIDTH + NEW_TAB_BUTTON_WIDTH
+        } else {
+            NEW_TAB_BUTTONS_WIDTH
+        };
+        let available = (self.bar_width - buttons).max(0.);
         (available / count).clamp(MIN_TAB_WIDTH, MAX_TAB_WIDTH)
     }
 
@@ -2574,7 +2651,22 @@ impl TerminalColumn {
                             .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
                                 this.new_agent_tab(window, cx);
                             })),
-                    ),
+                    )
+                    // On the right side the editor is behind this column: the
+                    // way back, since the editor's own button is out of sight.
+                    .when(self.is_trailing(), |this| {
+                        this.child(
+                            new_tab_button("ghostty-show-editor", "Editor on the right", cx)
+                                .children(bitmap_element(graphics::vector_editor(
+                                    palette.inactive_text,
+                                    16.,
+                                    scale,
+                                )))
+                                .on_click(cx.listener(|_, _: &ClickEvent, _window, cx| {
+                                    crate::set_right_side_terminal(false, cx);
+                                })),
+                        )
+                    }),
             )
             .into_any_element()
     }
@@ -2593,10 +2685,24 @@ impl TerminalColumn {
         // The strip runs along the bottom of the terminal's window frame, so
         // its corners take the frame's inner curve: the left one always, the
         // right one too when the column fills the window alone.
-        let alone = (self.layout() == LeadingColumnLayout::Full)
-            .then_some(("editor_window", ui::ArcoscopeSkinSeam::Right));
+        let alone = if self.is_trailing() {
+            // The trailing column stands inside the editor's window frame, so
+            // its strip takes that frame's corners: the right one always, the
+            // left one too when the leading column is out of the window.
+            let leading_hidden = self
+                .displayed_in
+                .read_with(cx, |workspace, _| {
+                    workspace.leading_column().is_none()
+                        || workspace.leading_column_layout() == LeadingColumnLayout::Hidden
+                })
+                .unwrap_or(false);
+            leading_hidden.then_some(("terminal_window", ui::ArcoscopeSkinSeam::Left))
+        } else {
+            (self.layout() == LeadingColumnLayout::Full)
+                .then_some(("editor_window", ui::ArcoscopeSkinSeam::Right))
+        };
         let [_, _, bottom_right, bottom_left] =
-            ui::arcoscope_skin_content_corners("terminal_window", alone, cx);
+            ui::arcoscope_skin_content_corners(self.frame_name(), alone, cx);
         if let Some(surface) = ui::arcoscope_skin_surface_variant_rounded(
             "bottom_strip",
             palette.page,
@@ -2877,7 +2983,7 @@ impl Render for TerminalColumn {
             .font_family(".SystemUIFont")
             // Matches the workspace's top edge, which a vector skin's window
             // frame draws instead.
-            .when(!ui::has_arcoscope_skin("terminal_window", cx), |this| {
+            .when(!ui::has_arcoscope_skin(self.frame_name(), cx), |this| {
                 this.child(div().w_full().h(px(1.)).flex_none().bg(palette.line))
             })
             .child(tab_bar)
@@ -2927,9 +3033,10 @@ impl Render for TerminalColumn {
             }))
             // The seam to the editor. Alone in the window the column has no seam,
             // and the line would stand just inside the window frame's own edge.
-            .when(self.layout() != LeadingColumnLayout::Full, |this| {
-                this.child(fill_at(self.bar_width - 1., 0., 1., 10000., palette.line))
-            })
+            .when(
+                !self.is_trailing() && self.layout() != LeadingColumnLayout::Full,
+                |this| this.child(fill_at(self.bar_width - 1., 0., 1., 10000., palette.line)),
+            )
             .on_mouse_move(cx.listener(|this, event: &MouseMoveEvent, _window, cx| {
                 if this.dragging_divider.is_some() {
                     this.drag_divider(event.position, cx);

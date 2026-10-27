@@ -3713,8 +3713,9 @@ pub(crate) fn preview_action_for_project_path(
 }
 
 /// Always-visible panel-navigation buttons: preview the active file, focus the project
-/// panel (explorer), focus the git panel, and toggle the right dock. Rendered either in a
-/// pane's tab bar (right dock closed) or in the full-width strip above the right dock (open).
+/// panel (explorer), focus the git panel, put a terminal column where the editor is, and
+/// toggle the right dock. Rendered either in a pane's tab bar (right dock closed) or in
+/// the full-width strip above the right dock (open).
 /// The skinned buttons share one size, matching the terminal column's new-tab buttons.
 pub(crate) fn render_workspace_nav_buttons(
     right_dock_open: bool,
@@ -3767,6 +3768,33 @@ pub(crate) fn render_workspace_nav_buttons(
                     // The git panel's ToggleFocus action lives in the `git_ui` crate,
                     // which depends on `workspace`; build it by name to avoid the cycle.
                     if let Some(action) = cx.build_action("git_panel::ToggleFocus", None).log_err()
+                    {
+                        window.dispatch_action(action, cx);
+                    }
+                })
+                .map(|button| {
+                    div()
+                        .relative()
+                        .children(
+                            ui::arcoscope_skin_surface("nav_button", cx)
+                                .or_else(|| ui::arcoscope_skin_surface("button", cx)),
+                        )
+                        .child(button)
+                }),
+        )
+        .child(
+            IconButton::new("right-side-terminal", IconName::Terminal)
+                .icon_size(IconSize::Small)
+                .width(nav_button_width)
+                .size(ButtonSize::Large)
+                .alpha(0.5)
+                .tooltip(Tooltip::text("Terminal on the Right"))
+                // The action lives in the `ghostty_terminal` crate, which depends on
+                // `workspace`; build it by name to avoid the cycle.
+                .on_click(|_, window, cx| {
+                    if let Some(action) = cx
+                        .build_action("ghostty_terminal::ToggleRightSideTerminal", None)
+                        .log_err()
                     {
                         window.dispatch_action(action, cx);
                     }
