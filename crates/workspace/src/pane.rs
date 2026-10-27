@@ -3638,11 +3638,11 @@ impl Pane {
                 }
             })
             .map(|tab_bar| {
-                let (right_dock_open, explorer_active, git_active) = self
+                let (right_dock_open, explorer_active, git_active, right_side_terminal) = self
                     .workspace
                     .upgrade()
                     .map(|workspace| workspace_nav_dock_state(workspace.read(cx), cx))
-                    .unwrap_or((false, false, false));
+                    .unwrap_or((false, false, false, false));
                 if right_dock_open {
                     // When the right dock is open the nav buttons live in the full-width
                     // strip above it (see `Workspace::render_dock`), so the per-pane tab
@@ -3657,6 +3657,7 @@ impl Pane {
                         right_dock_open,
                         explorer_active,
                         git_active,
+                        right_side_terminal,
                         preview,
                         cx,
                     ))
@@ -3665,10 +3666,14 @@ impl Pane {
     }
 }
 
-/// `(right_dock_open, explorer_active, git_active)` for the workspace nav buttons. The
-/// `*_active` flags mark whether the project/git panel is the active panel of an open
-/// dock, so the matching focus button can be dimmed (you're already there).
-pub(crate) fn workspace_nav_dock_state(workspace: &Workspace, cx: &App) -> (bool, bool, bool) {
+/// `(right_dock_open, explorer_active, git_active, right_side_terminal)` for the
+/// workspace nav buttons. The `*_active` flags mark whether the project/git panel is the
+/// active panel of an open dock, so the matching focus button can be dimmed (you're
+/// already there); the last one is whether a terminal column stands where the editor is.
+pub(crate) fn workspace_nav_dock_state(
+    workspace: &Workspace,
+    cx: &App,
+) -> (bool, bool, bool, bool) {
     let right_dock_open = workspace.right_dock().read(cx).is_open();
     let active_panel_names: Vec<&'static str> = workspace
         .all_docks()
@@ -3684,6 +3689,7 @@ pub(crate) fn workspace_nav_dock_state(workspace: &Workspace, cx: &App) -> (bool
         right_dock_open,
         active_panel_names.contains(&"Project Panel"),
         active_panel_names.contains(&"GitPanel"),
+        workspace.trailing_column().is_some(),
     )
 }
 
@@ -3713,14 +3719,16 @@ pub(crate) fn preview_action_for_project_path(
 }
 
 /// Always-visible panel-navigation buttons: preview the active file, focus the project
-/// panel (explorer), focus the git panel, put a terminal column where the editor is, and
-/// toggle the right dock. Rendered either in a pane's tab bar (right dock closed) or in
-/// the full-width strip above the right dock (open).
+/// panel (explorer), focus the git panel, toggle the right dock, and switch the right
+/// side of the window between the editor and a terminal column. Rendered either in a
+/// pane's tab bar (right dock closed) or in the full-width strip above the right dock
+/// (open).
 /// The skinned buttons share one size, matching the terminal column's new-tab buttons.
 pub(crate) fn render_workspace_nav_buttons(
     right_dock_open: bool,
     explorer_active: bool,
     git_active: bool,
+    right_side_terminal: bool,
     preview: Option<(&'static str, Box<dyn Action>)>,
     cx: &mut App,
 ) -> Div {
@@ -3783,33 +3791,6 @@ pub(crate) fn render_workspace_nav_buttons(
                 }),
         )
         .child(
-            IconButton::new("right-side-terminal", IconName::Terminal)
-                .icon_size(IconSize::Small)
-                .width(nav_button_width)
-                .size(ButtonSize::Large)
-                .alpha(0.5)
-                .tooltip(Tooltip::text("Terminal on the Right"))
-                // The action lives in the `ghostty_terminal` crate, which depends on
-                // `workspace`; build it by name to avoid the cycle.
-                .on_click(|_, window, cx| {
-                    if let Some(action) = cx
-                        .build_action("ghostty_terminal::ToggleRightSideTerminal", None)
-                        .log_err()
-                    {
-                        window.dispatch_action(action, cx);
-                    }
-                })
-                .map(|button| {
-                    div()
-                        .relative()
-                        .children(
-                            ui::arcoscope_skin_surface("nav_button", cx)
-                                .or_else(|| ui::arcoscope_skin_surface("button", cx)),
-                        )
-                        .child(button)
-                }),
-        )
-        .child(
             IconButton::new(
                 "toggle-right-dock",
                 if right_dock_open {
@@ -3839,6 +3820,62 @@ pub(crate) fn render_workspace_nav_buttons(
                     .child(button)
             }),
         )
+        // Last in the row, so it keeps its place when the buttons before it
+        // come and go.
+        .child(render_right_side_mode(right_side_terminal, cx))
+}
+
+/// What the right side of the window shows: the editor or a terminal column of
+/// its own. Both sides are always on show, side by side, the one in use filled
+/// in; clicking the other one switches to it.
+fn render_right_side_mode(right_side_terminal: bool, cx: &mut App) -> Div {
+    let segment = |id: &'static str, icon: IconName, active: bool, tooltip: &'static str| {
+        IconButton::new(id, icon)
+            .icon_size(IconSize::Small)
+            .width(px(28.))
+            .size(ButtonSize::Large)
+            .toggle_state(active)
+            .icon_color(if active { Color::Default } else { Color::Muted })
+            .tooltip(Tooltip::text(tooltip))
+            .map(|button| {
+                if active {
+                    // Already there: the segment marks the mode rather than
+                    // offering it. Not `disabled`, which would grey out the
+                    // very segment that should read as the one in use.
+                    button
+                } else {
+                    // The action lives in the `ghostty_terminal` crate, which depends
+                    // on `workspace`; build it by name to avoid the cycle.
+                    button.on_click(|_, window, cx| {
+                        if let Some(action) = cx
+                            .build_action("ghostty_terminal::ToggleRightSideTerminal", None)
+                            .log_err()
+                        {
+                            window.dispatch_action(action, cx);
+                        }
+                    })
+                }
+            })
+    };
+    div().relative().child(
+        h_flex()
+            .rounded_sm()
+            .border_1()
+            .border_color(cx.theme().colors().border)
+            .overflow_hidden()
+            .child(segment(
+                "right-side-editor",
+                IconName::FileCode,
+                !right_side_terminal,
+                "Editor on the Right",
+            ))
+            .child(segment(
+                "right-side-terminal",
+                IconName::Terminal,
+                right_side_terminal,
+                "Terminal on the Right",
+            )),
+    )
 }
 
 impl Pane {

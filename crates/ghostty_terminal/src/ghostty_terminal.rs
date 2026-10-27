@@ -109,14 +109,24 @@ pub fn right_side_terminal(cx: &App) -> bool {
     TerminalColumns::right_side_terminal(cx)
 }
 
-/// Puts the right side of the window in terminal mode, or back to the editor.
+/// Puts the right side of the window in terminal mode, or back to the editor,
+/// for the scope on screen. Another scope keeps its own side as it was.
 /// The work is deferred: this is called from a click inside a column and from
 /// arcoscope's socket, and the sync it needs updates both.
 pub fn set_right_side_terminal(on: bool, cx: &mut App) {
-    if TerminalColumns::right_side_terminal(cx) == on {
+    let Some(scope) = TerminalColumns::current_scope(cx) else {
+        return;
+    };
+    set_right_side_terminal_in(scope, on, cx);
+}
+
+/// `set_right_side_terminal` for a named scope, which need not be the one on
+/// screen (a tab of its right side was asked for).
+pub fn set_right_side_terminal_in(scope: std::path::PathBuf, on: bool, cx: &mut App) {
+    if TerminalColumns::right_side_terminal_in(&scope, cx) == on {
         return;
     }
-    TerminalColumns::set_right_side_terminal(on, cx);
+    TerminalColumns::set_right_side_terminal_in(scope, on, cx);
     let Some(window) = workspace::unified_window_handle(cx) else {
         return;
     };

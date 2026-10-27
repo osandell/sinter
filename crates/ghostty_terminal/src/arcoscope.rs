@@ -815,22 +815,42 @@ async fn handle_control(line: &str, cx: &mut AsyncApp) -> String {
                 return "error missing-args".into();
             };
             cx.update(|cx| {
-                let Some(column) = TerminalColumns::column_for_path(&normalize(title), cx) else {
+                // The index counts the worktree's tabs as arcoscope's mini
+                // screen shows them: the left column's first, then the right
+                // one's, which is the order `list-tabs` reports.
+                let columns = columns_of_worktree(&normalize(title), cx);
+                if columns.is_empty() {
                     return "no-window".into();
-                };
-                let Some(tab_id) = column.read(cx).tabs().get(index).map(|tab| tab.id()) else {
+                }
+                let mut rest = index;
+                let found = columns.into_iter().find_map(|column| {
+                    let count = column.read(cx).tabs().len();
+                    if rest < count {
+                        return Some((column, rest));
+                    }
+                    rest -= count;
+                    None
+                });
+                let Some((column, local)) = found else {
                     return "no-tab".into();
                 };
-                show_terminal(&column, true, cx);
-                let Some(terminal) = column
+                let Some((tab_id, terminal)) = column
                     .read(cx)
                     .tabs()
-                    .get(index)
-                    .and_then(|tab| tab.focused_terminal())
+                    .get(local)
+                    .and_then(|tab| Some((tab.id(), tab.focused_terminal()?)))
                 else {
                     return "no-tab".into();
                 };
-                focus_tab_terminal(&column, tab_id, &terminal, cx);
+                show_column(&column, true, cx);
+                if TerminalColumns::side_of(&column, cx) == crate::ColumnSide::Trailing {
+                    // The right side may have been showing the editor: its
+                    // column reaches the window on the deferred sync, and only
+                    // then can one of its tabs take the keyboard.
+                    cx.defer(move |cx| focus_tab_terminal(&column, tab_id, &terminal, cx));
+                } else {
+                    focus_tab_terminal(&column, tab_id, &terminal, cx);
+                }
                 "selected".into()
             })
         }
@@ -923,8 +943,15 @@ async fn handle_control(line: &str, cx: &mut AsyncApp) -> String {
                     return "no-tab".into();
                 };
                 show_column(&column, true, cx);
-                focus_tab_terminal(&column, tab_id, &terminal, cx);
                 follow_in_arcoscope(&column, cx);
+                if TerminalColumns::side_of(&column, cx) == crate::ColumnSide::Trailing {
+                    // The right side may have been showing the editor: its
+                    // column reaches the window on the deferred sync, and only
+                    // then can one of its tabs take the keyboard.
+                    cx.defer(move |cx| focus_tab_terminal(&column, tab_id, &terminal, cx));
+                } else {
+                    focus_tab_terminal(&column, tab_id, &terminal, cx);
+                }
                 "focused".into()
             })
         }
@@ -1182,10 +1209,13 @@ fn show_column(column: &Entity<TerminalColumn>, focus: bool, cx: &mut App) {
         show_terminal(column, focus, cx);
         return;
     }
-    if let Some(path) = column.read(cx).workspace_path().cloned()
-        && let Some(leading) = TerminalColumns::column_for_path(&path, cx)
-    {
-        TerminalColumns::set_current(&leading, cx);
+    if let Some(path) = column.read(cx).workspace_path().cloned() {
+        // A tab on the right side is only reachable with a terminal there, so
+        // asking for one puts that scope's right side in terminal mode.
+        crate::set_right_side_terminal_in(TerminalColumns::scope_root(&path), true, cx);
+        if let Some(leading) = TerminalColumns::column_for_path(&path, cx) {
+            TerminalColumns::set_current(&leading, cx);
+        }
     }
     if !focus {
         return;

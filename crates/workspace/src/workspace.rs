@@ -7980,7 +7980,7 @@ impl Workspace {
         // (the preview lookup needs `cx` mutably). Only when the right dock is open — when
         // closed the buttons fall back into the pane tab bar (see `Pane::configure_tab_bar_start`).
         let right_strip_buttons = if position == DockPosition::Right {
-            let (right_dock_open, explorer_active, git_active) =
+            let (right_dock_open, explorer_active, git_active, right_side_terminal) =
                 crate::pane::workspace_nav_dock_state(self, cx);
             right_dock_open.then(|| {
                 let preview = self
@@ -7991,6 +7991,7 @@ impl Workspace {
                     right_dock_open,
                     explorer_active,
                     git_active,
+                    right_side_terminal,
                     preview,
                     cx,
                 )

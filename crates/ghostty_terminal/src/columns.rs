@@ -8,7 +8,8 @@
 //! when arcoscope focuses a terminal) with the active workspace's editor, the way
 //! arcoscope used to place a Ghostty window beside a Zed window of another path.
 
-use std::path::Path;
+use std::collections::HashSet;
+use std::path::{Path, PathBuf};
 
 use gpui::{App, AppContext as _, Context, Entity, Global, WeakEntity, Window};
 use workspace::{MultiWorkspace, Workspace};
@@ -33,8 +34,10 @@ pub struct TerminalColumns {
     /// The terminal column the keyboard was in last, whichever side: where
     /// arcoscope's terminal key and its dock entry land.
     last_focused: Option<WeakEntity<TerminalColumn>>,
-    /// The right side shows a terminal column instead of the editor.
-    right_side_terminal: bool,
+    /// The scopes whose right side shows a terminal column instead of the
+    /// editor. Kept per scope, so switching to another project finds that
+    /// project's side as it was left.
+    right_side_terminal: HashSet<PathBuf>,
 }
 
 impl Global for TerminalColumns {}
@@ -159,13 +162,36 @@ impl TerminalColumns {
         Self::side_of(&last, cx) == ColumnSide::Trailing
     }
 
-    pub fn right_side_terminal(cx: &App) -> bool {
-        cx.try_global::<TerminalColumns>()
-            .is_some_and(|columns| columns.right_side_terminal)
+    /// The scope a worktree belongs to: the project root holding its
+    /// `worktrees` directory, else the worktree itself.
+    pub fn scope_root(path: &Path) -> PathBuf {
+        crate::worktree_split(path)
+            .map(|(container, _, _)| container)
+            .unwrap_or_else(|| path.to_path_buf())
     }
 
-    pub(crate) fn set_right_side_terminal(on: bool, cx: &mut App) {
-        cx.default_global::<TerminalColumns>().right_side_terminal = on;
+    /// The scope the window shows, which is the one the terminal stands in.
+    pub fn current_scope(cx: &App) -> Option<PathBuf> {
+        Some(Self::scope_root(Self::current(cx)?.read(cx).workspace_path()?))
+    }
+
+    pub fn right_side_terminal_in(scope: &Path, cx: &App) -> bool {
+        cx.try_global::<TerminalColumns>()
+            .is_some_and(|columns| columns.right_side_terminal.contains(scope))
+    }
+
+    /// Whether the scope on screen has a terminal on its right side.
+    pub fn right_side_terminal(cx: &App) -> bool {
+        Self::current_scope(cx).is_some_and(|scope| Self::right_side_terminal_in(&scope, cx))
+    }
+
+    pub(crate) fn set_right_side_terminal_in(scope: PathBuf, on: bool, cx: &mut App) {
+        let columns = cx.default_global::<TerminalColumns>();
+        if on {
+            columns.right_side_terminal.insert(scope);
+        } else {
+            columns.right_side_terminal.remove(&scope);
+        }
     }
 
     pub fn current(cx: &App) -> Option<Entity<TerminalColumn>> {
@@ -220,7 +246,8 @@ pub fn sync(
 
     // The right side in terminal mode: the column beside the editor's place
     // belongs to the same worktree as the one on the left, so both halves of
-    // the window show the same scope.
+    // the window show the same scope. The mode is the scope's own, so a switch
+    // to another project leaves this one as it was.
     let trailing = TerminalColumns::right_side_terminal(cx)
         .then(|| {
             let owner = shown.as_ref()?.read(cx).workspace().clone();
