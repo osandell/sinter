@@ -49,7 +49,7 @@ const NEW_TAB_BUTTON_WIDTH: f32 = 38.;
 const NEW_TAB_BUTTONS_WIDTH: f32 = 2. * NEW_TAB_BUTTON_WIDTH;
 /// The editor/terminal control in a trailing column's tab bar: two segments
 /// and its gap to the window's edge.
-const RIGHT_SIDE_MODE_WIDTH: f32 = 2. * 32. + 3.;
+const RIGHT_SIDE_MODE_WIDTH: f32 = 58. + 3.;
 const BOTTOM_BAND_HEIGHT: f32 = 10.;
 
 const LAMP_WORKING: u32 = 0xfe8019;

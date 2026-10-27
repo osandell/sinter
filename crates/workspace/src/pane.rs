@@ -3835,33 +3835,39 @@ pub(crate) fn render_workspace_nav_buttons(
 /// its own. One control carrying both sides, the one in use on a lighter plate;
 /// a click anywhere on it switches to the other. Drawn in the editor's nav row
 /// and, while a terminal column stands in the editor's place, in that column's
-/// tab bar, where the editor's own row is out of sight. The same size in both,
-/// so it does not grow with whichever bar it happens to sit on.
+/// tab bar, where the editor's own row is out of sight.
+///
+/// The plates stand `PLATE_MARGIN` from the drawn face on every side and
+/// `PLATE_GAP` from each other, which is what makes the pair read as one
+/// control rather than two buttons that happen to touch.
 pub fn render_right_side_mode(right_side_terminal: bool, cx: &mut App) -> gpui::Stateful<Div> {
+    /// Plate to the face's edge, the same above, below and to the sides.
+    const PLATE_MARGIN: f32 = 5.;
+    /// Between the two plates.
+    const PLATE_GAP: f32 = 2.;
+    /// A plate, a little larger than the icon it carries.
+    const PLATE: f32 = 22.;
+    /// A skin's button face is drawn a pixel in from the element's left and
+    /// right edges and flush with its top and bottom, so the padding that
+    /// leaves `PLATE_MARGIN` to the face differs by that pixel.
+    const FACE_INSET: f32 = 1.;
+
     let colors = cx.theme().colors().clone();
     // Well clear of the bar it sits on, in a light theme and a dark one: the
     // mode in use has to read at a glance, and the icons stay plain.
     let plate = ui::arcoscope_lighten(colors.tab_bar_background, 0.6);
     let side = |icon: IconName, active: bool| {
         div()
-            .w(RIGHT_SIDE_MODE_SEGMENT)
-            .h(RIGHT_SIDE_MODE_SEGMENT)
+            .w(px(PLATE))
+            .h(px(PLATE))
             .flex()
             .items_center()
             .justify_center()
-            .child(
-                div()
-                    .w(px(22.))
-                    .h(px(22.))
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .rounded_xs()
-                    .when(active, |this| {
-                        this.bg(plate).border_1().border_color(colors.border)
-                    })
-                    .child(Icon::new(icon).size(IconSize::Small).color(Color::Default)),
-            )
+            .rounded_xs()
+            .when(active, |this| {
+                this.bg(plate).border_1().border_color(colors.border)
+            })
+            .child(Icon::new(icon).size(IconSize::Small).color(Color::Default))
     };
     let tooltip = if right_side_terminal {
         "Editor on the Right"
@@ -3890,13 +3896,17 @@ pub fn render_right_side_mode(right_side_terminal: bool, cx: &mut App) -> gpui::
         )
         .child(
             h_flex()
+                .px(px(PLATE_MARGIN + FACE_INSET))
+                .py(px(PLATE_MARGIN))
+                .gap(px(PLATE_GAP))
                 .child(side(IconName::FileCode, !right_side_terminal))
                 .child(side(IconName::Terminal, right_side_terminal)),
         )
 }
 
-/// One side of the editor/terminal control, the size of a nav button.
-pub const RIGHT_SIDE_MODE_SEGMENT: Pixels = px(32.);
+/// What the editor/terminal control takes up: two plates, the gap between them
+/// and the margin round them, plus the pixel the drawn face is inset by.
+pub const RIGHT_SIDE_MODE_WIDTH: Pixels = px(58.);
 
 /// How far the editor/terminal control stands off the window's right edge, the
 /// same wherever it is drawn.
