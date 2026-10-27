@@ -139,8 +139,18 @@ pub unsafe fn remind_full_disk_access(window: id) {
     if !op_cli_in_use() {
         return;
     }
-    let probe = paths::home_dir().join("Library/Application Support/com.apple.TCC/TCC.db");
-    if std::fs::File::open(probe).is_ok() {
+    // Either TCC database opens only with Full Disk Access. The system one is
+    // the probe: the per-user database is gone on macOS 26 and later, so
+    // asking for it alone failed on a machine that had the access and the
+    // reminder came up every hour.
+    let probes = [
+        std::path::PathBuf::from("/Library/Application Support/com.apple.TCC/TCC.db"),
+        paths::home_dir().join("Library/Application Support/com.apple.TCC/TCC.db"),
+    ];
+    if probes
+        .iter()
+        .any(|probe| std::fs::File::open(probe).is_ok())
+    {
         return;
     }
     unsafe {
