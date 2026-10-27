@@ -3825,9 +3825,11 @@ pub(crate) fn render_workspace_nav_buttons(
         // half of that is pulled back, so the gap matches the one the control
         // has on a terminal column's bar.
         .child(
-            div()
-                .mr(-RIGHT_SIDE_MODE_GAP)
-                .child(render_right_side_mode(right_side_terminal, cx)),
+            div().mr(-RIGHT_SIDE_MODE_GAP).child(render_right_side_mode(
+                right_side_terminal,
+                gpui::size(nav_button_width, px(32.)),
+                cx,
+            )),
         )
 }
 
@@ -3835,17 +3837,25 @@ pub(crate) fn render_workspace_nav_buttons(
 /// its own. One control carrying both sides, the one in use on a lighter plate;
 /// a click anywhere on it switches to the other. Drawn in the editor's nav row
 /// and, while a terminal column stands in the editor's place, in that column's
-/// tab bar, where the editor's own row is out of sight. The same size in both,
-/// so it does not grow with whichever bar it happens to sit on.
-pub fn render_right_side_mode(right_side_terminal: bool, cx: &mut App) -> gpui::Stateful<Div> {
+/// tab bar, where the editor's own row is out of sight.
+///
+/// `segment` is one side's size: the control is two of them wide and wears the
+/// same button face as the buttons beside it, so it stands as tall as they do.
+/// The plate under the side in use is a fixed size inside that, so the two
+/// places mark the mode the same way whatever their buttons measure.
+pub fn render_right_side_mode(
+    right_side_terminal: bool,
+    segment: gpui::Size<Pixels>,
+    cx: &mut App,
+) -> gpui::Stateful<Div> {
     let colors = cx.theme().colors().clone();
     // Well clear of the bar it sits on, in a light theme and a dark one: the
     // mode in use has to read at a glance, and the icons stay plain.
     let plate = ui::arcoscope_lighten(colors.tab_bar_background, 0.6);
     let side = |icon: IconName, active: bool| {
         div()
-            .w(RIGHT_SIDE_MODE_SEGMENT)
-            .h(RIGHT_SIDE_MODE_SEGMENT)
+            .w(segment.width)
+            .h(segment.height)
             .flex()
             .items_center()
             .justify_center()
@@ -3894,9 +3904,6 @@ pub fn render_right_side_mode(right_side_terminal: bool, cx: &mut App) -> gpui::
                 .child(side(IconName::Terminal, right_side_terminal)),
         )
 }
-
-/// One side of the editor/terminal control, the size of a nav button.
-pub const RIGHT_SIDE_MODE_SEGMENT: Pixels = px(32.);
 
 /// How far the editor/terminal control stands off the window's right edge, the
 /// same wherever it is drawn.

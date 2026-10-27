@@ -47,9 +47,9 @@ const MIN_TAB_WIDTH: f32 = 86.;
 /// One of the two new-tab buttons (agent, shell) at the bar's right end.
 const NEW_TAB_BUTTON_WIDTH: f32 = 38.;
 const NEW_TAB_BUTTONS_WIDTH: f32 = 2. * NEW_TAB_BUTTON_WIDTH;
-/// The editor/terminal control in a trailing column's tab bar: two segments
-/// and its gap to the window's edge.
-const RIGHT_SIDE_MODE_WIDTH: f32 = 2. * 32. + 3.;
+/// The editor/terminal control in a trailing column's tab bar: a segment the
+/// size of a new-tab button per side, and its gap to the window's edge.
+const RIGHT_SIDE_MODE_WIDTH: f32 = 2. * NEW_TAB_BUTTON_WIDTH + 3.;
 const BOTTOM_BAND_HEIGHT: f32 = 10.;
 
 const LAMP_WORKING: u32 = 0xfe8019;
@@ -2661,12 +2661,13 @@ impl TerminalColumn {
                     .when(self.is_trailing(), |this| {
                         this.child(
                             div()
-                                .h(px(BAR_HEIGHT))
                                 .flex_none()
-                                .flex()
-                                .items_center()
                                 .pr(workspace::pane::RIGHT_SIDE_MODE_GAP)
-                                .child(workspace::pane::render_right_side_mode(true, cx)),
+                                .child(workspace::pane::render_right_side_mode(
+                                    true,
+                                    gpui::size(px(NEW_TAB_BUTTON_WIDTH), px(BAR_HEIGHT)),
+                                    cx,
+                                )),
                         )
                     }),
             )
