@@ -182,42 +182,6 @@ fn default_config_file_path() -> Option<std::path::PathBuf> {
     .find(|path| path.is_file())
 }
 
-/// The terminal's font: the config file's first `font-family`. Read once;
-/// gpui falls back to the system font when it is not installed.
-pub fn terminal_font_family() -> Option<gpui::SharedString> {
-    static FAMILY: OnceLock<Option<gpui::SharedString>> = OnceLock::new();
-    FAMILY
-        .get_or_init(|| {
-            let text = std::fs::read_to_string(config_file_path()?).ok()?;
-            text.lines().find_map(|line| {
-                let (key, value) = line.split_once('=')?;
-                let value = value.trim().trim_matches('"');
-                (key.trim() == "font-family" && !value.is_empty())
-                    .then(|| gpui::SharedString::from(value.to_string()))
-            })
-        })
-        .clone()
-}
-
-/// The terminal's font size in points: the config file's `font-size`, 13
-/// (Ghostty's default) when it is not set. Read once.
-pub fn terminal_font_size() -> f32 {
-    static SIZE: OnceLock<f32> = OnceLock::new();
-    *SIZE.get_or_init(|| {
-        config_file_path()
-            .and_then(|path| std::fs::read_to_string(path).ok())
-            .and_then(|text| {
-                text.lines().find_map(|line| {
-                    let (key, value) = line.split_once('=')?;
-                    (key.trim() == "font-size")
-                        .then(|| value.trim().parse::<f32>().ok())
-                        .flatten()
-                })
-            })
-            .unwrap_or(13.)
-    })
-}
-
 /// Opens the Ghostty config in the editor beside the terminal (the Ghostty
 /// app opened it in the default text editor).
 pub fn open_config(cx: &mut App) {

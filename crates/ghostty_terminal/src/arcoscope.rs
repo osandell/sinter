@@ -1151,52 +1151,6 @@ fn new_window(directory: &str, title: &str, cx: &mut AsyncApp) -> String {
     })
 }
 
-/// Gives the keyboard to the tab running Claude session `session` in
-/// `worktree`'s column. Returns false when that column or tab is not there.
-fn focus_session_tab(worktree: &Path, session: &str, cx: &mut App) -> bool {
-    let Some(column) = TerminalColumns::column_for_path(worktree, cx) else {
-        return false;
-    };
-    let Some((tab_id, terminal)) = column
-        .read(cx)
-        .tabs()
-        .iter()
-        .find(|tab| tab.claude_session.as_deref() == Some(session))
-        .and_then(|tab| Some((tab.id(), tab.focused_terminal()?)))
-    else {
-        return false;
-    };
-    show_terminal(&column, true, cx);
-    focus_tab_terminal(&column, tab_id, &terminal, cx);
-    follow_in_arcoscope(&column, cx);
-    true
-}
-
-/// The session band's fork button: back to the parent session's tab. Its
-/// scope may have been closed since the fork; then arcoscope opens it, and
-/// the tab (restored with its session) is focused once its column is up.
-pub(crate) fn focus_session(worktree: PathBuf, root: PathBuf, session: String, cx: &mut App) {
-    if focus_session_tab(&worktree, &session, cx) {
-        return;
-    }
-    send_to_daemon(format!("scope-open {}", root.display()));
-    cx.spawn(async move |cx| {
-        for _ in 0..40 {
-            cx.background_executor()
-                .timer(Duration::from_millis(500))
-                .await;
-            if cx.update(|cx| focus_session_tab(&worktree, &session, cx)) {
-                return;
-            }
-        }
-        log::warn!(
-            "fork parent {session} did not show up in {}",
-            worktree.display()
-        );
-    })
-    .detach();
-}
-
 /// Shows `column` in the window; with `focus`, also gives it the keyboard
 /// and makes the app active.
 fn show_terminal(column: &Entity<TerminalColumn>, focus: bool, cx: &mut App) {
@@ -1453,8 +1407,8 @@ fn describe_tabs(column: &Entity<TerminalColumn>, cx: &App) -> Vec<serde_json::V
                 "claude_title": tab.claude_title.as_ref().map(|title| title.to_string()),
                 "blocked": tab.blocked,
                 "note": tab.blocked_note,
-                // Same choice as the session band: a session's own name over
-                // arcoscope's topic, which a fork shares with its parent.
+                // A session's own name over arcoscope's topic, which a fork
+                // shares with its parent.
                 "topic": tab
                     .claude_title
                     .as_ref()

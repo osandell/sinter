@@ -9,7 +9,7 @@ use gpui::{
     AnyElement, App, AppContext as _, Axis, Bounds, ClickEvent, Context, DismissEvent, Entity,
     EntityId, FocusHandle, Focusable, Hsla, InteractiveElement, IntoElement, MouseButton,
     MouseDownEvent, MouseMoveEvent, MouseUpEvent, ParentElement, Pixels, PromptLevel, Render, Rgba,
-    SharedString, StatefulInteractiveElement, Styled, Subscription, Task, WeakEntity, Window, canvas,
+    SharedString, StatefulInteractiveElement, Styled, Subscription, WeakEntity, Window, canvas,
     div, img, prelude::FluentBuilder, px, rgb,
 };
 use project::Project;
@@ -30,7 +30,7 @@ use crate::ffi;
 /// How long focus has to stay out of every terminal column before the editor
 /// side is reported to arcoscope.
 const FOCUS_OUT_SETTLE: std::time::Duration = std::time::Duration::from_millis(50);
-use ui::{ActiveTheme as _, ButtonCommon as _, Clickable as _, Disableable as _, StyledExt as _};
+use ui::{ActiveTheme as _, ButtonCommon as _, Clickable as _, StyledExt as _};
 
 const BAR_HEIGHT: f32 = 40.;
 /// A tab's two lines, the title (with its 16px status mark) and the worktree
@@ -48,10 +48,6 @@ const MIN_TAB_WIDTH: f32 = 86.;
 const NEW_TAB_BUTTON_WIDTH: f32 = 38.;
 const NEW_TAB_BUTTONS_WIDTH: f32 = 2. * NEW_TAB_BUTTON_WIDTH;
 const BOTTOM_BAND_HEIGHT: f32 = 10.;
-/// The session band under the terminal: the topic line's height, and vertical
-/// padding. The body lines are as tall as the terminal's font needs.
-const SESSION_BAND_LINE: f32 = 16.;
-const SESSION_BAND_PADDING: f32 = 5.;
 
 const LAMP_WORKING: u32 = 0xfe8019;
 const LAMP_QUESTION: u32 = 0xc678dd;
@@ -321,16 +317,12 @@ pub struct TerminalTab {
     pub busy: bool,
     pub worktree: Option<String>,
     pub worktree_path: Option<PathBuf>,
-    /// arcoscope's summary of the tab's Claude session, for the band under the
-    /// terminal. Re-read on every Claude poll.
+    /// arcoscope's summary of the tab's Claude session, reported in the tab
+    /// list. Re-read on every Claude poll.
     pub session_info: Option<crate::session_activity::SessionInfo>,
     /// The session's parent when it is a fork, looked up once per session
     /// (the session id it was looked up for, and what was found).
     pub fork_origin: Option<(String, Option<crate::session_activity::ForkOrigin>)>,
-    /// The band shows this earlier topic of the session (an index into its
-    /// `topics`) instead of the current one, after a step back with its
-    /// chevrons; None is the live topic.
-    pub topic_shown: Option<usize>,
 }
 
 impl TerminalTab {
@@ -408,9 +400,6 @@ pub struct TerminalColumn {
     close_confirm: Option<CloseConfirm>,
     /// The blocked note being edited, hung under its tab.
     blocked_note: Option<BlockedNote>,
-    /// Paging a full-screen terminal app (Claude Code's fullscreen TUI) back
-    /// to a topic's prompt, after a step with the session band's chevrons.
-    topic_scroll: Option<Task<()>>,
     command_palette: Option<(Entity<GhosttyCommandPalette>, Subscription)>,
     /// arcoscope's fullscreen for this worktree: the side with the keyboard takes
     /// the whole width.
@@ -514,7 +503,6 @@ impl TerminalColumn {
             worktree_picker: None,
             close_confirm: None,
             blocked_note: None,
-            topic_scroll: None,
             command_palette: None,
             fullscreen: false,
             terminal_side: false,
@@ -761,7 +749,6 @@ impl TerminalColumn {
             worktree_path: None,
             session_info: None,
             fork_origin: None,
-            topic_shown: None,
         });
         Some(id)
     }
@@ -1733,8 +1720,6 @@ struct Palette {
     hover: Rgba,
     active_text: Rgba,
     inactive_text: Rgba,
-    /// The session band's topic: gruvbox green, like the line and bar colors.
-    band_title: Rgba,
     /// The arcoscope page for skinned chrome, which picks a per-collection bitmap
     /// instead of taking `bar_color`. `None` unless the terminal holds the
     /// keyboard, the same rule `bar_color` follows.
@@ -1765,7 +1750,6 @@ impl Palette {
                 hover: to_rgba(colors.element_hover),
                 active_text: to_rgba(colors.text),
                 inactive_text: to_rgba(colors.text_muted),
-                band_title: to_rgba(colors.text_accent),
                 page,
                 bar_glow: None,
             };
@@ -1774,10 +1758,10 @@ impl Palette {
         let background = colors.background;
         let foreground = colors.foreground;
         let dark = luminance(background) < 0.5;
-        let (line, bar, band_title) = if dark {
-            (rgb(0x665c54), rgb(0x32302f), rgb(0xb8bb26))
+        let (line, bar) = if dark {
+            (rgb(0x665c54), rgb(0x32302f))
         } else {
-            (rgb(0x94a0a1), rgb(0xeee8d5), rgb(0x79740e))
+            (rgb(0x94a0a1), rgb(0xeee8d5))
         };
         // Same base and page tint as the editor's bars (`ui::arcoscope`), chosen by
         // the terminal background's luminance like the fork does. Only while
@@ -1800,7 +1784,6 @@ impl Palette {
             hover: mix(background, foreground, 0.12),
             active_text: foreground,
             inactive_text: mix(background, foreground, 0.55),
-            band_title,
         }
     }
 }
@@ -2672,235 +2655,6 @@ impl TerminalColumn {
         }
     }
 
-    /// Under the terminal of a tab that runs Claude: line 1 what the session is
-    /// about, lines 2-4 what it is doing now or, once its turn is over, what it
-    /// wants. The band is always there, empty until arcoscope has summarized the
-    /// session: the terminal keeps one height, so the band showing up does not
-    /// resize it and move Claude's prompt.
-    /// Steps the session band to the previous or next of the session's
-    /// topics, and scrolls the terminal to where that topic's prompt is (the
-    /// top when the history no longer has it, the bottom back at the live one).
-    fn step_topic(&mut self, forward: bool, cx: &mut Context<Self>) {
-        let Some(tab) = self.tabs.get_mut(self.selected) else {
-            return;
-        };
-        let topics = tab
-            .session_info
-            .as_ref()
-            .map(|info| info.topics.clone())
-            .unwrap_or_default();
-        if topics.len() < 2 {
-            return;
-        }
-        let last = topics.len() - 1;
-        let current = tab.topic_shown.unwrap_or(last);
-        let next = if forward {
-            (current + 1).min(last)
-        } else {
-            current.saturating_sub(1)
-        };
-        tab.topic_shown = (next < last).then_some(next);
-        let prompt = tab
-            .topic_shown
-            .and_then(|index| topics.get(index))
-            .map(|entry| entry.prompt.to_string());
-        let terminal = tab.focused_terminal();
-        self.topic_scroll = None;
-        if let Some(terminal) = terminal {
-            if !scroll_to_prompt(terminal.read(cx), prompt.as_deref()) {
-                self.topic_scroll = Some(page_to_prompt(terminal, prompt, cx));
-            }
-        }
-        cx.notify();
-    }
-
-    fn render_session_band(&self, palette: &Palette, cx: &mut Context<Self>) -> Option<AnyElement> {
-        let body_size = crate::runtime::terminal_font_size();
-        let body_line = (body_size * 1.3).round();
-        let tab = self.tabs.get(self.selected).filter(|tab| tab.claude_present);
-        let info = tab
-            .and_then(|tab| tab.session_info.clone())
-            .unwrap_or_default();
-        // arcoscope's topic comes from the first prompt, which a fork shares with
-        // its parent; a name the session was given says what it is about.
-        let topic_count = info.topics.len();
-        // Once the work has moved on to a second topic, the topics say what it
-        // is about now, over a name given at the start.
-        let topic = tab
-            .filter(|tab| tab.claude_title_custom && topic_count < 2)
-            .and_then(|tab| tab.claude_title.clone())
-            .or(info.topic.clone())
-            .unwrap_or_default();
-        let shown = tab
-            .and_then(|tab| tab.topic_shown)
-            .filter(|index| *index + 1 < topic_count);
-        // An earlier topic: its own title, and what was done under it where
-        // the live line goes (the prompt that began it until that summary
-        // is written).
-        let earlier = shown.and_then(|index| info.topics.get(index));
-        let summary: Vec<SharedString> = earlier.map(|entry| entry.summary.clone()).unwrap_or_default();
-        let (topic, body) = match earlier {
-            Some(entry) => (
-                entry.topic.clone(),
-                SharedString::from(format!("\u{21b6} {}", entry.prompt)),
-            ),
-            None => (topic, info.now.clone().unwrap_or_default()),
-        };
-        let title_color = if shown.is_some() {
-            palette.inactive_text
-        } else {
-            palette.band_title
-        };
-        let topic_nav = (topic_count > 1).then(|| {
-            let position = shown.map_or(topic_count, |index| index + 1);
-            div()
-                .flex_none()
-                .flex()
-                .items_center()
-                .gap(px(2.))
-                .child(
-                    ui::IconButton::new("ghostty-topic-back", ui::IconName::ChevronLeft)
-                        .shape(ui::IconButtonShape::Square)
-                        .icon_color(ui::Color::Muted)
-                        .size(ui::ButtonSize::None)
-                        .icon_size(ui::IconSize::Small)
-                        .disabled(position <= 1)
-                        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                            cx.stop_propagation();
-                            this.step_topic(false, cx);
-                        })),
-                )
-                .child(
-                    div()
-                        .text_size(px(11.))
-                        .text_color(palette.inactive_text)
-                        .child(format!("{position}/{topic_count}")),
-                )
-                .child(
-                    ui::IconButton::new("ghostty-topic-forward", ui::IconName::ChevronRight)
-                        .shape(ui::IconButtonShape::Square)
-                        .icon_color(ui::Color::Muted)
-                        .size(ui::ButtonSize::None)
-                        .icon_size(ui::IconSize::Small)
-                        .disabled(position >= topic_count)
-                        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                            cx.stop_propagation();
-                            this.step_topic(true, cx);
-                        })),
-                )
-        });
-        let fork_origin = tab
-            .and_then(|tab| tab.fork_origin.as_ref())
-            .and_then(|(_, origin)| origin.clone());
-        Some(
-            div()
-                .w_full()
-                .flex_none()
-                .flex()
-                .flex_col()
-                .child(div().w_full().h(px(1.)).bg(palette.line))
-                .child(
-                    div()
-                        .w_full()
-                        .px(px(12.))
-                        .pt(px(SESSION_BAND_PADDING))
-                        // A body line's worth of room above the bottom edge.
-                        .pb(px(body_line))
-                        .flex()
-                        .flex_col()
-                        .bg(palette.active_background)
-                        .relative()
-                        .children(ui::arcoscope_skin_surface("session_panel", cx))
-                        .when_some(crate::runtime::terminal_font_family(), |this, family| {
-                            this.font_family(family)
-                        })
-                        .child(
-                            div()
-                                .w_full()
-                                .h(px(SESSION_BAND_LINE))
-                                .flex()
-                                .items_center()
-                                .gap(px(8.))
-                                .when(fork_origin.is_some(), |this| this.pr(px(20.)))
-                                .child(
-                                    div()
-                                        .flex_1()
-                                        .min_w_0()
-                                        .text_size(px(12.))
-                                        .line_height(px(SESSION_BAND_LINE))
-                                        .truncate()
-                                        .font_weight(gpui::FontWeight::SEMIBOLD)
-                                        .text_color(title_color)
-                                        .child(topic),
-                                )
-                                .children(topic_nav),
-                        )
-                        .when_some(fork_origin, |this, origin| {
-                            let parent = format!(
-                                "{} i {}",
-                                origin
-                                    .parent_title
-                                    .clone()
-                                    .unwrap_or_else(|| "en session".to_string()),
-                                origin.workspace_name()
-                            );
-                            let tooltip = if origin.handed_off {
-                                format!(
-                                    "Forkad från {parent}. Föräldern lämnade över och avslutade sig, så det finns ingen session att gå tillbaka till."
-                                )
-                            } else {
-                                format!("Forkad från {parent}")
-                            };
-                            let handed_off = origin.handed_off;
-                            this.child(
-                                div()
-                                    .absolute()
-                                    .top(px(SESSION_BAND_PADDING))
-                                    .right(px(8.))
-                                    .child(
-                                        ui::IconButton::new(
-                                            "ghostty-session-fork",
-                                            ui::IconName::GitBranch,
-                                        )
-                                        .shape(ui::IconButtonShape::Square)
-                                        .icon_color(ui::Color::Muted)
-                                        .size(ui::ButtonSize::None)
-                                        .icon_size(ui::IconSize::Small)
-                                        .tooltip(ui::Tooltip::text(tooltip))
-                                        .when(!handed_off, |button| {
-                                            button.on_click(move |_: &ClickEvent, _, cx| {
-                                                cx.stop_propagation();
-                                                crate::arcoscope::focus_session(
-                                                    origin.parent_worktree.clone(),
-                                                    origin.parent_root.clone(),
-                                                    origin.parent_session.clone(),
-                                                    cx,
-                                                );
-                                            })
-                                        }),
-                                    ),
-                            )
-                        })
-                        .child(
-                            div()
-                                .w_full()
-                                .mt(px(5.))
-                                .h(px(body_line * 3.))
-                                .text_size(px(body_size))
-                                .line_height(px(body_line))
-                                .overflow_hidden()
-                                .text_color(palette.inactive_text)
-                                .when(summary.is_empty(), |this| this.line_clamp(3).child(body))
-                                // One line per point, cut short rather than
-                                // pushing the next one out.
-                                .children(summary.into_iter().map(|point| {
-                                    div().w_full().truncate().child(SharedString::from(format!("\u{2022} {point}")))
-                                })),
-                        ),
-                )
-                .into_any_element(),
-        )
-    }
 
     fn render_split(
         &self,
@@ -3100,7 +2854,6 @@ impl Render for TerminalColumn {
         });
 
         let tab_bar = self.render_tab_bar(&palette, amiga, scale, window, cx);
-        let session_band = self.render_session_band(&palette, cx);
         let bottom_strip = self.render_bottom_strip(&palette, amiga, scale, cx);
 
         div()
@@ -3144,7 +2897,6 @@ impl Render for TerminalColumn {
                     .children(ui::arcoscope_skin_surface("terminal_panel", cx))
                     .children(content),
             )
-            .children(session_band)
             .child(bottom_strip)
             .children(self.render_worktree_picker(cx))
             .children(self.render_close_confirm(cx))
@@ -3192,129 +2944,3 @@ impl Render for TerminalColumn {
     }
 }
 
-/// Whitespace collapsed and lowercased, for finding a prompt in the scrollback
-/// however the terminal wrapped it.
-fn folded(text: &str) -> String {
-    text.split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase()
-}
-
-/// How much of a prompt's start is looked for: the first line a terminal
-/// shows of it, before it wraps.
-const PROMPT_PROBE_CHARS: usize = 24;
-
-/// The scrollback line where `prompt` begins, counted from the end, if the
-/// scrollback still has it (the first time it appears).
-fn prompt_line_from_end(scrollback: &str, prompt: &str) -> Option<usize> {
-    let probe: String = folded(prompt).chars().take(PROMPT_PROBE_CHARS).collect();
-    if probe.is_empty() {
-        return None;
-    }
-    let lines: Vec<&str> = scrollback.split('\n').collect();
-    let index = lines.iter().position(|line| folded(line).contains(&probe))?;
-    Some(lines.len() - index)
-}
-
-/// Lines of scrollback searched for a prompt.
-const PROMPT_SEARCH_LINES: usize = 200_000;
-
-/// Scrolls `terminal` so the line where `prompt` begins sits near the top of
-/// the view, to the bottom for None. False when the terminal has no history
-/// of its own to scroll (a full-screen app draws on the alternate screen, as
-/// Claude Code's fullscreen TUI does): `page_to_prompt` pages the app then.
-fn scroll_to_prompt(terminal: &GhosttyTerminal, prompt: Option<&str>) -> bool {
-    let rows = terminal.grid().map_or(24, |(rows, ..)| rows as usize);
-    let Some((text, _)) = terminal.scrollback(PROMPT_SEARCH_LINES) else {
-        return false;
-    };
-    // Only the screen itself: nothing above it to scroll to.
-    if text.split('\n').count() <= rows + 1 {
-        return false;
-    }
-    let Some(prompt) = prompt else {
-        terminal.binding_action("scroll_to_bottom");
-        return true;
-    };
-    let Some(from_end) = prompt_line_from_end(&text, prompt) else {
-        terminal.binding_action("scroll_to_top");
-        return true;
-    };
-    terminal.binding_action("scroll_to_bottom");
-    // From the bottom, the line is `from_end` up; two rows of air above it.
-    let up = (from_end + 2).saturating_sub(rows);
-    if up > 0 {
-        terminal.binding_action(&format!("scroll_page_lines:-{up}"));
-    }
-    true
-}
-
-/// Keys Claude Code's fullscreen TUI scrolls its conversation with: PgUp half
-/// a screen, Ctrl+End back to the latest message, Ctrl+Home to the start.
-const PAGE_UP: &str = "text:\\x1b[5~";
-const TO_END: &str = "text:\\x1b[1;5F";
-const TO_START: &str = "text:\\x1b[1;5H";
-/// Steps of PgUp before giving up and going to the start.
-const MAX_PAGES: usize = 400;
-/// What the app needs to redraw after a key.
-const PAGE_SETTLE: std::time::Duration = std::time::Duration::from_millis(60);
-
-/// The visible screen as one folded line.
-fn screen_text(terminal: &GhosttyTerminal) -> String {
-    let Some((rows, _, _, columns)) = terminal.grid() else {
-        return String::new();
-    };
-    let lines: Vec<String> = (0..rows)
-        .filter_map(|row| terminal.read_viewport_row(row, columns).map(|(text, _, _)| text))
-        .collect();
-    folded(&lines.join(" "))
-}
-
-/// A full-screen app: back to the latest message for None, else from there
-/// up a page at a time until the prompt's start shows, or to the start when
-/// the conversation no longer has it.
-fn page_to_prompt(terminal: Entity<GhosttyTerminal>, prompt: Option<String>, cx: &mut Context<TerminalColumn>) -> Task<()> {
-    terminal.read(cx).binding_action(TO_END);
-    let Some(prompt) = prompt else {
-        return Task::ready(());
-    };
-    let probe: String = folded(&prompt).chars().take(PROMPT_PROBE_CHARS).collect();
-    cx.spawn(async move |_, cx| {
-        if probe.is_empty() {
-            terminal.read_with(cx, |terminal, _| terminal.binding_action(TO_START));
-            return;
-        }
-        let mut last = String::new();
-        let mut unchanged = 0;
-        for _ in 0..MAX_PAGES {
-            cx.background_executor().timer(PAGE_SETTLE).await;
-            let screen = terminal.read_with(cx, |terminal, _| screen_text(terminal));
-            if screen.contains(&probe) {
-                return;
-            }
-            // The same screen twice after a page up: the start is reached.
-            if screen == last {
-                unchanged += 1;
-                if unchanged >= 2 {
-                    return;
-                }
-            } else {
-                unchanged = 0;
-            }
-            last = screen;
-            terminal.read_with(cx, |terminal, _| terminal.binding_action(PAGE_UP));
-        }
-        terminal.read_with(cx, |terminal, _| terminal.binding_action(TO_START));
-    })
-}
-
-#[cfg(test)]
-mod topic_scroll_tests {
-    use super::*;
-
-    #[test]
-    fn finds_a_wrapped_prompt_from_the_end() {
-        let scrollback = "one\n> Make the BACKGROUND image\n  softer please\nreply\nlast";
-        assert_eq!(prompt_line_from_end(scrollback, "make the background image softer please"), Some(4));
-        assert_eq!(prompt_line_from_end(scrollback, "something else entirely here"), None);
-        assert_eq!(prompt_line_from_end(scrollback, "   "), None);
-    }
-}

@@ -11,8 +11,7 @@
 //! moves on), `topics` every topic so far, oldest first, each with the start of
 //! the prompt that began it and, once the work has moved on, what was done
 //! under it in up to three points (`summary`); `now` is what is going on at the moment, or what
-//! Claude's last reply wants once the turn is over. Drawn as the band under the
-//! terminal (`render_session_band`), whose chevrons step through `topics`.
+//! Claude's last reply wants once the turn is over.
 
 use gpui::SharedString;
 use serde::Deserialize;

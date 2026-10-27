@@ -258,14 +258,6 @@ pub fn reload_config() {
     reload_app_config();
 }
 
-pub fn terminal_font_family() -> Option<gpui::SharedString> {
-    config().font_family.clone().map(Into::into)
-}
-
-pub fn terminal_font_size() -> f32 {
-    config().font_size
-}
-
 pub fn open_config(cx: &mut App) {
     let Some(path) = config_file_path() else {
         log::warn!("Ghostty has no config file to open");
