@@ -47,6 +47,9 @@ const MIN_TAB_WIDTH: f32 = 86.;
 /// One of the two new-tab buttons (agent, shell) at the bar's right end.
 const NEW_TAB_BUTTON_WIDTH: f32 = 38.;
 const NEW_TAB_BUTTONS_WIDTH: f32 = 2. * NEW_TAB_BUTTON_WIDTH;
+/// The editor/terminal control in a trailing column's tab bar: two segments
+/// and the border round them.
+const RIGHT_SIDE_MODE_WIDTH: f32 = 62.;
 const BOTTOM_BAND_HEIGHT: f32 = 10.;
 
 const LAMP_WORKING: u32 = 0xfe8019;
@@ -2032,7 +2035,7 @@ impl TerminalColumn {
     fn tab_width(&self) -> f32 {
         let count = self.tabs.len().max(1) as f32;
         let buttons = if self.is_trailing() {
-            NEW_TAB_BUTTONS_WIDTH + NEW_TAB_BUTTON_WIDTH
+            NEW_TAB_BUTTONS_WIDTH + RIGHT_SIDE_MODE_WIDTH
         } else {
             NEW_TAB_BUTTONS_WIDTH
         };
@@ -2652,19 +2655,17 @@ impl TerminalColumn {
                                 this.new_agent_tab(window, cx);
                             })),
                     )
-                    // On the right side the editor is behind this column: the
-                    // way back, since the editor's own button is out of sight.
+                    // On the right side the editor is behind this column, and
+                    // with it the nav row holding this control: the same one is
+                    // drawn here, so the way back is where it always is.
                     .when(self.is_trailing(), |this| {
                         this.child(
-                            new_tab_button("ghostty-show-editor", "Editor on the right", cx)
-                                .children(bitmap_element(graphics::vector_editor(
-                                    palette.inactive_text,
-                                    16.,
-                                    scale,
-                                )))
-                                .on_click(cx.listener(|_, _: &ClickEvent, _window, cx| {
-                                    crate::set_right_side_terminal(false, cx);
-                                })),
+                            div()
+                                .h(px(BAR_HEIGHT))
+                                .flex_none()
+                                .flex()
+                                .items_center()
+                                .child(workspace::pane::render_right_side_mode(true, cx)),
                         )
                     }),
             )

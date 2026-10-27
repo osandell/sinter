@@ -842,8 +842,9 @@ async fn handle_control(line: &str, cx: &mut AsyncApp) -> String {
                 else {
                     return "no-tab".into();
                 };
+                let trailing = TerminalColumns::side_of(&column, cx) == crate::ColumnSide::Trailing;
                 show_column(&column, true, cx);
-                if TerminalColumns::side_of(&column, cx) == crate::ColumnSide::Trailing {
+                if trailing {
                     // The right side may have been showing the editor: its
                     // column reaches the window on the deferred sync, and only
                     // then can one of its tabs take the keyboard.
@@ -851,7 +852,10 @@ async fn handle_control(line: &str, cx: &mut AsyncApp) -> String {
                 } else {
                     focus_tab_terminal(&column, tab_id, &terminal, cx);
                 }
-                "selected".into()
+                // A tab on the right side says so, since the caller moves the
+                // keyboard itself and must not take it back to the left. The
+                // left side answers as it always did.
+                if trailing { "selected\tright" } else { "selected" }.to_string()
             })
         }
         // `new-agent-tab`: what the terminal column's robot button does, in the
@@ -1474,6 +1478,7 @@ fn describe_tabs(column: &Entity<TerminalColumn>, cx: &App) -> Vec<serde_json::V
     let current = TerminalColumns::current(cx).is_some_and(|current| &current == column)
         || TerminalColumns::current_trailing(cx).is_some_and(|current| &current == column);
     let side = TerminalColumns::side_of(column, cx);
+    let has_keyboard = TerminalColumns::is_last_focused(column, cx);
     let column = column.read(cx);
     let window = column
         .workspace_path()
@@ -1501,6 +1506,9 @@ fn describe_tabs(column: &Entity<TerminalColumn>, cx: &App) -> Vec<serde_json::V
                 "index": index,
                 "id": tab.id(),
                 "selected": index == column.selected_index(),
+                // The one tab of the worktree that holds the keyboard: both
+                // sides have a selected tab, and only this one is live.
+                "focused": index == column.selected_index() && has_keyboard,
                 "on_screen": current,
                 "kind": if tab.claude_present { "claude" } else { "shell" },
                 "busy": busy,

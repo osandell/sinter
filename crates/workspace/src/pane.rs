@@ -3826,9 +3826,11 @@ pub(crate) fn render_workspace_nav_buttons(
 }
 
 /// What the right side of the window shows: the editor or a terminal column of
-/// its own. Both sides are always on show, side by side, the one in use filled
-/// in; clicking the other one switches to it.
-fn render_right_side_mode(right_side_terminal: bool, cx: &mut App) -> Div {
+/// its own. Both sides are always on show, side by side, the one in use marked;
+/// clicking the other one switches to it. Drawn in the editor's nav row and,
+/// while a terminal column stands in the editor's place, in that column's tab
+/// bar, where the editor's own row is out of sight.
+pub fn render_right_side_mode(right_side_terminal: bool, cx: &mut App) -> Div {
     let segment = |id: &'static str, icon: IconName, active: bool, tooltip: &'static str| {
         IconButton::new(id, icon)
             .icon_size(IconSize::Small)

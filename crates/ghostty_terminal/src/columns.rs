@@ -150,6 +150,13 @@ impl TerminalColumns {
         cx.default_global::<TerminalColumns>().last_focused = Some(column.downgrade());
     }
 
+    /// Whether `column` is the one the keyboard was last in.
+    pub fn is_last_focused(column: &Entity<TerminalColumn>, cx: &App) -> bool {
+        cx.try_global::<TerminalColumns>()
+            .and_then(|columns| columns.last_focused.as_ref()?.upgrade())
+            .is_some_and(|last| &last == column)
+    }
+
     /// Whether the keyboard was last in a trailing column, so arcoscope's
     /// terminal key goes back to the right side rather than the left.
     pub fn last_focused_is_trailing(cx: &App) -> bool {
