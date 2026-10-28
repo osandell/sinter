@@ -69,9 +69,6 @@ struct SurfaceDefinition {
     layers: Vec<LayerDefinition>,
     #[serde(default)]
     padding: [f32; 4],
-    /// Text colour for what is drawn on the surface, when the skin's copy needs
-    /// one of its own (a collection-coloured tab's label).
-    text: Option<String>,
 }
 
 /// One vector layer: a rounded rectangle `inset` from the surface's bounds
@@ -186,7 +183,6 @@ struct LoadedSurface {
     borders: [f32; 4],
     edge_mode: Option<FillMode>,
     padding: [f32; 4],
-    text: Option<Hsla>,
 }
 
 #[derive(Default)]
@@ -302,12 +298,6 @@ fn load_surface(
         .map(load_layer)
         .collect::<Result<Vec<_>, _>>()
         .map_err(|error| format!("{name}: {error}"))?;
-    let text = surface
-        .text
-        .as_deref()
-        .map(parse_color)
-        .transpose()
-        .map_err(|error| format!("{name}: {error}"))?;
     // Checked by `load_skin`: a surface with bitmap parts has an image.
     let image = match image {
         Some(image) => image,
@@ -322,7 +312,6 @@ fn load_surface(
                     borders: [0.; 4],
                     edge_mode: None,
                     padding: surface.padding,
-                    text,
                 }),
             ));
         }
@@ -385,7 +374,6 @@ fn load_surface(
             borders,
             edge_mode: surface.frame.as_ref().and_then(|frame| frame.edge_mode),
             padding: surface.padding,
-            text,
         }),
     ))
 }
@@ -593,85 +581,6 @@ pub fn arcoscope_skin_surface_variant_rounded(
             .child(clipped_half(&dark_surface, dark_tint, false))
             .into_any_element(),
     )
-}
-
-/// On-screen slope of the edge between a two-colour page's halves on a tab,
-/// the angle arcoscope splits a collection key at.
-const SLANTED_SPLIT_SLOPE: f32 = 0.6;
-
-/// `arcoscope_skin_surface_variant` for a tab: a two-colour page lays the
-/// lighter page's fill over the upper left of the darker page's copy, split by
-/// a slanted edge through the middle the way arcoscope draws a collection key,
-/// instead of side by side. The darker copy's border runs whole round both.
-pub fn arcoscope_skin_surface_variant_slanted(
-    name: &str,
-    variant: Option<usize>,
-    cx: &App,
-) -> Option<AnyElement> {
-    let Some((light, dark)) = variant
-        .and_then(crate::arcoscope::arcoscope_page_halves)
-        .filter(|(light, dark)| light != dark)
-    else {
-        return arcoscope_skin_surface_variant(name, variant, cx);
-    };
-    let (dark_surface, dark_tint) = page_half(name, dark, cx)?;
-    let (light_surface, light_tint) = page_half(name, light, cx)?;
-    let light_fill = light_surface
-        .layers
-        .last()
-        .and_then(|layer| layer.fill)
-        .map(|fill| light_tint.map_or(fill, |tint| fill.blend(tint)));
-    let (Some(light_fill), Some(layer)) = (light_fill, dark_surface.layers.last()) else {
-        return arcoscope_skin_surface_variant(name, variant, cx);
-    };
-    let widths = layer.border.map_or([0.; 4], |(_, widths)| widths);
-    let [top, right, bottom, left] = std::array::from_fn(|side| layer.inset[side] + widths[side]);
-    let split = canvas(
-        |_, _, _| (),
-        move |bounds, (), window, _| {
-            let left = f32::from(bounds.left()) + left;
-            let right = f32::from(bounds.right()) - right;
-            let top = f32::from(bounds.top()) + top;
-            let bottom = f32::from(bounds.bottom()) - bottom;
-            if right <= left || bottom <= top {
-                return;
-            }
-            let center = (left + right) / 2.;
-            let half_run = (bottom - top) / 2. / SLANTED_SPLIT_SLOPE;
-            let mut builder = gpui::PathBuilder::fill();
-            builder.move_to(point(px(left), px(top)));
-            builder.line_to(point(px((center + half_run).min(right)), px(top)));
-            builder.line_to(point(px((center - half_run).max(left)), px(bottom)));
-            builder.line_to(point(px(left), px(bottom)));
-            builder.close();
-            match builder.build() {
-                Ok(path) => window.paint_path(path, light_fill),
-                Err(error) => log::error!("slanted split of a skin surface: {error}"),
-            }
-        },
-    )
-    .absolute()
-    .inset_0()
-    .size_full();
-    Some(
-        div()
-            .absolute()
-            .inset_0()
-            .child(half_element(&dark_surface, dark_tint, [px(0.); 4]))
-            .child(split)
-            .into_any_element(),
-    )
-}
-
-/// The text colour the skin gives its copy of `name` for `variant`, the darker
-/// page's for a two-colour one, when it gives one.
-pub fn arcoscope_skin_surface_text(name: &str, variant: Option<usize>, cx: &App) -> Option<Hsla> {
-    let page = variant
-        .and_then(crate::arcoscope::arcoscope_page_halves)
-        .map(|(_, dark)| dark);
-    page.and_then(|page| active_surface(&format!("{name}@{page}"), cx))
-        .or_else(|| active_surface(name, cx))?
-        .text
 }
 
 pub fn has_arcoscope_skin(name: &str, cx: &App) -> bool {

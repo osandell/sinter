@@ -1238,7 +1238,7 @@
                   0,
                   0
                 ],
-                "fill": "#f2b38a",
+                "fill": "#f7f6f1",
                 "border": "#d0d1cb",
                 "border_widths": [
                   0,
@@ -1246,9 +1246,23 @@
                   1,
                   0
                 ]
+              },
+              {
+                "inset": [
+                  0,
+                  1,
+                  0,
+                  0
+                ],
+                "border": "#f2b38a",
+                "border_widths": [
+                  0,
+                  0,
+                  3,
+                  0
+                ]
               }
-            ],
-            "text": "#334351"
+            ]
           },
           "tab_active@1": {
             "layers": [
@@ -1259,7 +1273,7 @@
                   0,
                   0
                 ],
-                "fill": "#a8d5ba",
+                "fill": "#f7f6f1",
                 "border": "#d0d1cb",
                 "border_widths": [
                   0,
@@ -1267,9 +1281,23 @@
                   1,
                   0
                 ]
+              },
+              {
+                "inset": [
+                  0,
+                  1,
+                  0,
+                  0
+                ],
+                "border": "#a8d5ba",
+                "border_widths": [
+                  0,
+                  0,
+                  3,
+                  0
+                ]
               }
-            ],
-            "text": "#334351"
+            ]
           },
           "tab_active@2": {
             "layers": [
@@ -1280,7 +1308,7 @@
                   0,
                   0
                 ],
-                "fill": "#b7a3d8",
+                "fill": "#f7f6f1",
                 "border": "#d0d1cb",
                 "border_widths": [
                   0,
@@ -1288,9 +1316,23 @@
                   1,
                   0
                 ]
+              },
+              {
+                "inset": [
+                  0,
+                  1,
+                  0,
+                  0
+                ],
+                "border": "#b7a3d8",
+                "border_widths": [
+                  0,
+                  0,
+                  3,
+                  0
+                ]
               }
-            ],
-            "text": "#334351"
+            ]
           },
           "tab_active@3": {
             "layers": [
@@ -1301,7 +1343,7 @@
                   0,
                   0
                 ],
-                "fill": "#9ec5e5",
+                "fill": "#f7f6f1",
                 "border": "#d0d1cb",
                 "border_widths": [
                   0,
@@ -1309,9 +1351,23 @@
                   1,
                   0
                 ]
+              },
+              {
+                "inset": [
+                  0,
+                  1,
+                  0,
+                  0
+                ],
+                "border": "#9ec5e5",
+                "border_widths": [
+                  0,
+                  0,
+                  3,
+                  0
+                ]
               }
-            ],
-            "text": "#334351"
+            ]
           },
           "tab_active@4": {
             "layers": [
@@ -1322,7 +1378,7 @@
                   0,
                   0
                 ],
-                "fill": "#f3dfa2",
+                "fill": "#f7f6f1",
                 "border": "#d0d1cb",
                 "border_widths": [
                   0,
@@ -1330,9 +1386,23 @@
                   1,
                   0
                 ]
+              },
+              {
+                "inset": [
+                  0,
+                  1,
+                  0,
+                  0
+                ],
+                "border": "#f3dfa2",
+                "border_widths": [
+                  0,
+                  0,
+                  3,
+                  0
+                ]
               }
-            ],
-            "text": "#334351"
+            ]
           },
           "tab_active@5": {
             "layers": [
@@ -1343,7 +1413,7 @@
                   0,
                   0
                 ],
-                "fill": "#f2a9b9",
+                "fill": "#f7f6f1",
                 "border": "#d0d1cb",
                 "border_widths": [
                   0,
@@ -1351,9 +1421,23 @@
                   1,
                   0
                 ]
+              },
+              {
+                "inset": [
+                  0,
+                  1,
+                  0,
+                  0
+                ],
+                "border": "#f2a9b9",
+                "border_widths": [
+                  0,
+                  0,
+                  3,
+                  0
+                ]
               }
-            ],
-            "text": "#334351"
+            ]
           },
           "button": {
             "layers": [
@@ -1718,12 +1802,27 @@
                   0,
                   0
                 ],
-                "fill": "#503329",
+                "fill": "#1b1e1f",
                 "border": "#3e3a35",
                 "border_widths": [
                   0,
                   1,
                   1,
+                  0
+                ]
+              },
+              {
+                "inset": [
+                  0,
+                  1,
+                  0,
+                  0
+                ],
+                "border": "#854833",
+                "border_widths": [
+                  0,
+                  0,
+                  3,
                   0
                 ]
               }
@@ -1738,12 +1837,27 @@
                   0,
                   0
                 ],
-                "fill": "#3e4a3a",
+                "fill": "#1b1e1f",
                 "border": "#3e3a35",
                 "border_widths": [
                   0,
                   1,
                   1,
+                  0
+                ]
+              },
+              {
+                "inset": [
+                  0,
+                  1,
+                  0,
+                  0
+                ],
+                "border": "#617656",
+                "border_widths": [
+                  0,
+                  0,
+                  3,
                   0
                 ]
               }
@@ -1758,12 +1872,27 @@
                   0,
                   0
                 ],
-                "fill": "#443e52",
+                "fill": "#1b1e1f",
                 "border": "#3e3a35",
                 "border_widths": [
                   0,
                   1,
                   1,
+                  0
+                ]
+              },
+              {
+                "inset": [
+                  0,
+                  1,
+                  0,
+                  0
+                ],
+                "border": "#6d5f86",
+                "border_widths": [
+                  0,
+                  0,
+                  3,
                   0
                 ]
               }
@@ -1778,12 +1907,27 @@
                   0,
                   0
                 ],
-                "fill": "#33444c",
+                "fill": "#1b1e1f",
                 "border": "#3e3a35",
                 "border_widths": [
                   0,
                   1,
                   1,
+                  0
+                ]
+              },
+              {
+                "inset": [
+                  0,
+                  1,
+                  0,
+                  0
+                ],
+                "border": "#4b6b7a",
+                "border_widths": [
+                  0,
+                  0,
+                  3,
                   0
                 ]
               }
@@ -1798,12 +1942,27 @@
                   0,
                   0
                 ],
-                "fill": "#4d462a",
+                "fill": "#1b1e1f",
                 "border": "#3e3a35",
                 "border_widths": [
                   0,
                   1,
                   1,
+                  0
+                ]
+              },
+              {
+                "inset": [
+                  0,
+                  1,
+                  0,
+                  0
+                ],
+                "border": "#7f6d36",
+                "border_widths": [
+                  0,
+                  0,
+                  3,
                   0
                 ]
               }
@@ -1818,12 +1977,27 @@
                   0,
                   0
                 ],
-                "fill": "#523b42",
+                "fill": "#1b1e1f",
                 "border": "#3e3a35",
                 "border_widths": [
                   0,
                   1,
                   1,
+                  0
+                ]
+              },
+              {
+                "inset": [
+                  0,
+                  1,
+                  0,
+                  0
+                ],
+                "border": "#8a5866",
+                "border_widths": [
+                  0,
+                  0,
+                  3,
                   0
                 ]
               }

@@ -221,9 +221,7 @@ impl Tab {
             .relative()
             .h(Tab::container_height(cx))
             .cursor_pointer()
-            .children(crate::arcoscope_skin_surface_variant_slanted(
-                surface, page, cx,
-            ))
+            .children(crate::arcoscope_skin_surface_variant(surface, page, cx))
             .child(
                 h_flex()
                     .group("")
@@ -232,8 +230,7 @@ impl Tab {
                     .px(DynamicSpacing::Base08.px(cx))
                     .gap(DynamicSpacing::Base04.rems(cx))
                     .text_color(if selected {
-                        crate::arcoscope_skin_surface_text(surface, page, cx)
-                            .unwrap_or(cx.theme().colors().text)
+                        cx.theme().colors().text
                     } else {
                         cx.theme().colors().text_muted
                     })
