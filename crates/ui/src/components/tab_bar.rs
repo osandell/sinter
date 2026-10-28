@@ -181,8 +181,9 @@ impl RenderOnce for TabBar {
                         .gap(DynamicSpacing::Base04.rems(cx))
                         .px(DynamicSpacing::Base06.rems(cx))
                         .border_color(border)
-                        .when(!skinned, |this| this.border_b_1())
-                        .border_l_1()
+                        // A skin rules the bar off itself; the divider to the
+                        // tabs then reads as a second line drawn over its own.
+                        .when(!skinned, |this| this.border_b_1().border_l_1())
                         .children(self.end_children),
                 )
             })
