@@ -147,6 +147,12 @@ impl RenderOnce for TabBar {
                     .relative()
                     .flex_1()
                     .h_full()
+                    // The first tab's face stands the same 5px off the bar's
+                    // edge as the buttons at the other end. `tab_active` insets
+                    // each tab by 2 and the window frame leaves 0 here, so 3
+                    // more gets there; the inset is the gap between tabs and is
+                    // left alone.
+                    .pl(px(3.))
                     .overflow_x_hidden()
                     .child(
                         div()

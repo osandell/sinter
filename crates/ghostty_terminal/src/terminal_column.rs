@@ -2636,6 +2636,13 @@ impl TerminalColumn {
                     .child(
                         div()
                             .id("ghostty-tabs-scroll")
+                            // The first tab's face is to stand the same 5px off
+                            // the bar's edge as the buttons at the other end.
+                            // `tab_active` already insets each tab by 2, and the
+                            // window frame leaves 1, so 2 more gets there; the
+                            // inset itself is the gap between tabs and is left
+                            // alone.
+                            .pl(px(2.))
                             .flex_1()
                             .min_w_0()
                             .h_full()
