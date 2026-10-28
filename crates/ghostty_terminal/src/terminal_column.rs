@@ -2649,6 +2649,9 @@ impl TerminalColumn {
                     // column has a seam: the trailing one ends at the window
                     // frame, where the face's own inset is the whole gap.
                     .when(!self.is_trailing(), |this| this.pr(px(2.)))
+                    // The trailing column ends at the window frame instead.
+                    // Measured 4pt there without this, 5 with it.
+                    .when(self.is_trailing(), |this| this.pr(px(1.)))
                     .child(
                         div()
                             .id("ghostty-tabs-scroll")
