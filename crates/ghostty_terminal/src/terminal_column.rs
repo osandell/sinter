@@ -2643,16 +2643,19 @@ impl TerminalColumn {
                     .left_0()
                     .size_full()
                     .flex()
+                    // The seam to the editor is drawn over the bar's last
+                    // pixel, so everything in the row stands a pixel further in
+                    // to leave the same 5px the other edges have.
+                    .pr(px(1.))
                     .child(
                         div()
                             .id("ghostty-tabs-scroll")
                             // The first tab's face is to stand the same 5px off
                             // the bar's edge as the buttons at the other end.
-                            // `tab_active` already insets each tab by 2, and the
-                            // window frame leaves 1, so 2 more gets there; the
-                            // inset itself is the gap between tabs and is left
-                            // alone.
-                            .pl(px(2.))
+                            // `tab_active` insets each tab by 2, so 3 more gets
+                            // there; the inset itself is the gap between tabs
+                            // and is left alone.
+                            .pl(px(3.))
                             .flex_1()
                             .min_w_0()
                             .h_full()
