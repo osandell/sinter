@@ -3934,10 +3934,11 @@ pub fn render_right_side_mode(
             })
             .child(Icon::new(icon).size(IconSize::Small).color(Color::Default))
     };
+    // Names what a click does, not what is on screen.
     let tooltip = if right_side_terminal {
-        "Editor on the Right"
+        "Toggle to Editor"
     } else {
-        "Terminal on the Right"
+        "Toggle to Terminal"
     };
     div()
         .id("right-side-mode")
