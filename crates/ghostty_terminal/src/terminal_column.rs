@@ -2644,9 +2644,10 @@ impl TerminalColumn {
                     .size_full()
                     .flex()
                     // The seam to the editor is drawn over the bar's last
-                    // pixel, so everything in the row stands a pixel further in
-                    // to leave the same 5px the other edges have.
-                    .pr(px(1.))
+                    // point, so everything in the row stands that much further
+                    // in to leave the same 5pt the other edges have. Measured
+                    // at 4pt with 1 here, so the seam costs the whole point.
+                    .pr(px(2.))
                     .child(
                         div()
                             .id("ghostty-tabs-scroll")
