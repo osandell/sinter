@@ -2288,13 +2288,23 @@ impl TerminalColumn {
         } else {
             palette.inactive_text
         };
+        // A collection-coloured copy of the active tab brings its own label
+        // colour, dark enough for the coloured face at full strength.
+        let skin_text = active
+            .then(|| ui::arcoscope_skin_surface_text("tab_active", palette.page, cx))
+            .flatten()
+            .map(to_rgba);
         let title_color = if amiga {
             rgb(if active { 0xe0d0ae } else { 0xbdae93 })
+        } else if let Some(skin_text) = skin_text {
+            skin_text
         } else {
             with_opacity(text_color, if active { 0.72 } else { 0.6 })
         };
         let worktree_color = if amiga {
             rgb(if active { 0xa89984 } else { 0x7c6f64 })
+        } else if let Some(skin_text) = skin_text {
+            with_opacity(skin_text, 0.86)
         } else {
             with_opacity(text_color, if active { 0.62 } else { 0.5 })
         };
@@ -2458,7 +2468,7 @@ impl TerminalColumn {
         let skinned = ui::has_arcoscope_skin(tab_surface, cx);
         // The active tab takes the skin's copy tinted to the arcoscope collection
         // while the terminal holds the keyboard, the neutral bitmap otherwise.
-        let face: Vec<AnyElement> = if let Some(face) = ui::arcoscope_skin_surface_variant(
+        let face: Vec<AnyElement> = if let Some(face) = ui::arcoscope_skin_surface_variant_slanted(
             tab_surface,
             if active { palette.page } else { None },
             cx,

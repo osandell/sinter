@@ -3921,7 +3921,10 @@ pub fn render_right_side_mode(
     // Well clear of the bar it sits on, in a light theme and a dark one: the
     // mode in use has to read at a glance, and the icons stay plain.
     let plate = ui::arcoscope_lighten(colors.tab_bar_background, 0.6);
-    let side = |icon: IconName, active: bool| {
+    // A skin can draw the plate itself: a dark one wants it a notch off the
+    // bar, where the lightened plate glares.
+    let has_plate_skin = ui::has_arcoscope_skin("mode_plate", cx);
+    let side = |icon: IconName, active: bool, cx: &App| {
         div()
             .w(RIGHT_SIDE_MODE_PLATE)
             .h(RIGHT_SIDE_MODE_PLATE)
@@ -3929,7 +3932,11 @@ pub fn render_right_side_mode(
             .items_center()
             .justify_center()
             .rounded_xs()
-            .when(active, |this| {
+            .when(active && has_plate_skin, |this| {
+                this.relative()
+                    .children(ui::arcoscope_skin_surface("mode_plate", cx))
+            })
+            .when(active && !has_plate_skin, |this| {
                 this.bg(plate).border_1().border_color(colors.border)
             })
             .child(Icon::new(icon).size(IconSize::Small).color(Color::Default))
@@ -3964,8 +3971,8 @@ pub fn render_right_side_mode(
                 .px(inset.width + RIGHT_SIDE_MODE_MARGIN)
                 .py(inset.height + RIGHT_SIDE_MODE_MARGIN)
                 .gap(RIGHT_SIDE_MODE_PLATE_GAP)
-                .child(side(IconName::FileCode, !right_side_terminal))
-                .child(side(IconName::Terminal, right_side_terminal)),
+                .child(side(IconName::FileCode, !right_side_terminal, cx))
+                .child(side(IconName::Terminal, right_side_terminal, cx)),
         )
 }
 

@@ -1229,6 +1229,132 @@
               }
             ]
           },
+          "tab_active@0": {
+            "layers": [
+              {
+                "inset": [
+                  0,
+                  0,
+                  0,
+                  0
+                ],
+                "fill": "#f2b38a",
+                "border": "#d0d1cb",
+                "border_widths": [
+                  0,
+                  1,
+                  1,
+                  0
+                ]
+              }
+            ],
+            "text": "#334351"
+          },
+          "tab_active@1": {
+            "layers": [
+              {
+                "inset": [
+                  0,
+                  0,
+                  0,
+                  0
+                ],
+                "fill": "#a8d5ba",
+                "border": "#d0d1cb",
+                "border_widths": [
+                  0,
+                  1,
+                  1,
+                  0
+                ]
+              }
+            ],
+            "text": "#334351"
+          },
+          "tab_active@2": {
+            "layers": [
+              {
+                "inset": [
+                  0,
+                  0,
+                  0,
+                  0
+                ],
+                "fill": "#b7a3d8",
+                "border": "#d0d1cb",
+                "border_widths": [
+                  0,
+                  1,
+                  1,
+                  0
+                ]
+              }
+            ],
+            "text": "#334351"
+          },
+          "tab_active@3": {
+            "layers": [
+              {
+                "inset": [
+                  0,
+                  0,
+                  0,
+                  0
+                ],
+                "fill": "#9ec5e5",
+                "border": "#d0d1cb",
+                "border_widths": [
+                  0,
+                  1,
+                  1,
+                  0
+                ]
+              }
+            ],
+            "text": "#334351"
+          },
+          "tab_active@4": {
+            "layers": [
+              {
+                "inset": [
+                  0,
+                  0,
+                  0,
+                  0
+                ],
+                "fill": "#f3dfa2",
+                "border": "#d0d1cb",
+                "border_widths": [
+                  0,
+                  1,
+                  1,
+                  0
+                ]
+              }
+            ],
+            "text": "#334351"
+          },
+          "tab_active@5": {
+            "layers": [
+              {
+                "inset": [
+                  0,
+                  0,
+                  0,
+                  0
+                ],
+                "fill": "#f2a9b9",
+                "border": "#d0d1cb",
+                "border_widths": [
+                  0,
+                  1,
+                  1,
+                  0
+                ]
+              }
+            ],
+            "text": "#334351"
+          },
           "button": {
             "layers": [
               {
@@ -1583,6 +1709,126 @@
               }
             ]
           },
+          "tab_active@0": {
+            "layers": [
+              {
+                "inset": [
+                  0,
+                  0,
+                  0,
+                  0
+                ],
+                "fill": "#503329",
+                "border": "#3e3a35",
+                "border_widths": [
+                  0,
+                  1,
+                  1,
+                  0
+                ]
+              }
+            ]
+          },
+          "tab_active@1": {
+            "layers": [
+              {
+                "inset": [
+                  0,
+                  0,
+                  0,
+                  0
+                ],
+                "fill": "#3e4a3a",
+                "border": "#3e3a35",
+                "border_widths": [
+                  0,
+                  1,
+                  1,
+                  0
+                ]
+              }
+            ]
+          },
+          "tab_active@2": {
+            "layers": [
+              {
+                "inset": [
+                  0,
+                  0,
+                  0,
+                  0
+                ],
+                "fill": "#443e52",
+                "border": "#3e3a35",
+                "border_widths": [
+                  0,
+                  1,
+                  1,
+                  0
+                ]
+              }
+            ]
+          },
+          "tab_active@3": {
+            "layers": [
+              {
+                "inset": [
+                  0,
+                  0,
+                  0,
+                  0
+                ],
+                "fill": "#33444c",
+                "border": "#3e3a35",
+                "border_widths": [
+                  0,
+                  1,
+                  1,
+                  0
+                ]
+              }
+            ]
+          },
+          "tab_active@4": {
+            "layers": [
+              {
+                "inset": [
+                  0,
+                  0,
+                  0,
+                  0
+                ],
+                "fill": "#4d462a",
+                "border": "#3e3a35",
+                "border_widths": [
+                  0,
+                  1,
+                  1,
+                  0
+                ]
+              }
+            ]
+          },
+          "tab_active@5": {
+            "layers": [
+              {
+                "inset": [
+                  0,
+                  0,
+                  0,
+                  0
+                ],
+                "fill": "#523b42",
+                "border": "#3e3a35",
+                "border_widths": [
+                  0,
+                  1,
+                  1,
+                  0
+                ]
+              }
+            ]
+          },
           "button": {
             "layers": [
               {
@@ -1773,6 +2019,20 @@
                   0,
                   0,
                   0
+                ]
+              }
+            ]
+          },
+          "mode_plate": {
+            "layers": [
+              {
+                "fill": "#34322f",
+                "border": "#3e3a35",
+                "radius": [
+                  2,
+                  2,
+                  2,
+                  2
                 ]
               }
             ]
