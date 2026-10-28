@@ -3698,7 +3698,10 @@ impl Pane {
                         git_active,
                         right_side_terminal,
                         preview,
-                        DynamicSpacing::Base06.px(cx),
+                        // A pixel less than the slot's own padding: measured
+                        // 4pt to the window edge with the full figure, 5 with
+                        // this. The slot's border takes the difference.
+                        DynamicSpacing::Base06.px(cx) - px(1.),
                         cx,
                     ))
                 }
