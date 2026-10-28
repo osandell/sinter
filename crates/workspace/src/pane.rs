@@ -3698,14 +3698,10 @@ impl Pane {
                         git_active,
                         right_side_terminal,
                         preview,
-                        // A point more than the slot's own padding, which
-                        // pulls the control that much closer to the window's
-                        // edge. The skin's `etch`, a near-white line just
-                        // outside the button's outline, sits in the gap and
-                        // reads as part of it, so the editor's row ends up a
-                        // point wider than a count of bar-coloured pixels
-                        // suggests.
-                        DynamicSpacing::Base06.px(cx) + px(1.),
+                        // The slot's own padding. The control then stands the
+                        // same distance off the window's edge as a terminal
+                        // column's does.
+                        DynamicSpacing::Base06.px(cx),
                         cx,
                     ))
                 }

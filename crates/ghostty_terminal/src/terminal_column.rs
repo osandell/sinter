@@ -2652,10 +2652,12 @@ impl TerminalColumn {
                     .child(
                         div()
                             .id("ghostty-tabs-scroll")
-                            // No padding: the tab in use fills its cell to the
-                            // bar's edge, so the first one meets the window
-                            // frame. An unused tab draws no face, so nothing
-                            // else stands closer to the edge than before.
+                            // A point out, not in: the tab in use covers the
+                            // window surface's inner left border, so the corner
+                            // shows one frame line instead of a pair with a
+                            // lighter pixel between them. An unused tab draws
+                            // no face, so nothing else reaches past the edge.
+                            .ml(px(-1.))
                             .flex_1()
                             .min_w_0()
                             .h_full()
