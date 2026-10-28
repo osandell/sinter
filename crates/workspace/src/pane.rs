@@ -3698,12 +3698,14 @@ impl Pane {
                         git_active,
                         right_side_terminal,
                         preview,
-                        // Two points less than the slot's own padding. The
-                        // skin's `etch`, a near-white line just outside the
-                        // button's outline, sits in the gap and reads as part
-                        // of it, so the editor's row needs one point less than
-                        // a count of bar-coloured pixels suggests.
-                        DynamicSpacing::Base06.px(cx) - px(2.),
+                        // A point more than the slot's own padding, which
+                        // pulls the control that much closer to the window's
+                        // edge. The skin's `etch`, a near-white line just
+                        // outside the button's outline, sits in the gap and
+                        // reads as part of it, so the editor's row ends up a
+                        // point wider than a count of bar-coloured pixels
+                        // suggests.
+                        DynamicSpacing::Base06.px(cx) + px(1.),
                         cx,
                     ))
                 }
@@ -3780,7 +3782,10 @@ pub(crate) fn render_workspace_nav_buttons(
 ) -> Div {
     let nav_button_width = px(32.);
     h_flex()
-        .gap(DynamicSpacing::Base04.rems(cx))
+        // Two points over the usual step, which puts the bar showing between
+        // the buttons at the 8pt a terminal column's bar leaves between its
+        // own. Measured 6pt here with the plain figure.
+        .gap(DynamicSpacing::Base04.px(cx) + px(2.))
         .when_some(preview, |this, (tooltip, action)| {
             this.child(
                 IconButton::new("preview-active-item", IconName::Eye)
