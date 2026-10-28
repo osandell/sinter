@@ -7998,6 +7998,8 @@ impl Workspace {
                     git_active,
                     right_side_terminal,
                     preview,
+                    // The strip's own `px(8.)` below.
+                    px(8.),
                     cx,
                 )
             })

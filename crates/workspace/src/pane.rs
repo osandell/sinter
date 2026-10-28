@@ -3698,6 +3698,7 @@ impl Pane {
                         git_active,
                         right_side_terminal,
                         preview,
+                        DynamicSpacing::Base06.px(cx),
                         cx,
                     ))
                 }
@@ -3769,6 +3770,7 @@ pub(crate) fn render_workspace_nav_buttons(
     git_active: bool,
     right_side_terminal: bool,
     preview: Option<(&'static str, Box<dyn Action>)>,
+    container_padding: Pixels,
     cx: &mut App,
 ) -> Div {
     let nav_button_width = px(32.);
@@ -3863,9 +3865,14 @@ pub(crate) fn render_workspace_nav_buttons(
         // come and go. The tab bar's end slot pads it 6px off the window edge;
         // half of that is pulled back, so the gap matches the one the control
         // has on a terminal column's bar.
+        // Last in the row, so it keeps its place when the buttons before it
+        // come and go. The row sits in a container that pads it off the window
+        // edge by `container_padding`, and the two containers it is drawn in
+        // pad differently: that is taken back here, so the gap is the same one
+        // a terminal column's bar leaves, whatever the dock is doing.
         .child(
             div()
-                .mr(-RIGHT_SIDE_MODE_PULLBACK)
+                .mr(RIGHT_SIDE_MODE_EDGE - container_padding)
                 .child(render_right_side_mode(right_side_terminal, cx)),
         )
 }
@@ -3947,16 +3954,14 @@ pub fn render_right_side_mode(right_side_terminal: bool, cx: &mut App) -> gpui::
 /// and the margin round them, plus the pixel the drawn face is inset by.
 pub const RIGHT_SIDE_MODE_WIDTH: Pixels = px(58.);
 
-/// How far the editor/terminal control stands off the window's right edge.
-/// The nav row sits in a strip that already pads 8px off that edge, so the
-/// control pulls `RIGHT_SIDE_MODE_PULLBACK` of that back; a bar without such
-/// padding, like a terminal column's, pads by this much instead. The two have
-/// to add up, or the control sits closer to the edge in one mode than in the
-/// other.
+/// How far the editor/terminal control stands off the window's right edge,
+/// the same in every bar it is drawn in. A bar that pads its contents off that
+/// edge itself hands that padding to `render_workspace_nav_buttons`, which
+/// takes it back; a bar without any, like a terminal column's, pads by this
+/// much instead.
 pub const RIGHT_SIDE_MODE_EDGE: Pixels = px(5.);
 
-/// What the control takes back from the nav strip's own 8px of padding.
-pub const RIGHT_SIDE_MODE_PULLBACK: Pixels = px(3.);
+
 
 impl Pane {
     fn render_single_row_tab_bar(
