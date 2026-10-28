@@ -3870,12 +3870,28 @@ pub(crate) fn render_workspace_nav_buttons(
         // edge by `container_padding`, and the two containers it is drawn in
         // pad differently: that is taken back here, so the gap is the same one
         // a terminal column's bar leaves, whatever the dock is doing.
+        // Last in the row, so it keeps its place when the buttons before it
+        // come and go. The gap wanted is `RIGHT_SIDE_MODE_EDGE`; the face's own
+        // inset gives part of it and the row's container pads the rest, so what
+        // is left over is taken back here.
         .child(
             div()
-                .mr(RIGHT_SIDE_MODE_EDGE - container_padding)
-                .child(render_right_side_mode(right_side_terminal, "nav_button", cx)),
+                .mr(RIGHT_SIDE_MODE_EDGE - NAV_BUTTON_INSET.width - container_padding)
+                .child(render_right_side_mode(
+                    right_side_terminal,
+                    "nav_button",
+                    NAV_BUTTON_INSET,
+                    cx,
+                )),
         )
 }
+
+/// How far inside its element the skin draws the `nav_button` face, from the
+/// skin's own definition.
+pub const NAV_BUTTON_INSET: gpui::Size<Pixels> = gpui::Size {
+    width: px(2.),
+    height: px(1.),
+};
 
 /// What the right side of the window shows: the editor or a terminal column of
 /// its own. One control carrying both sides, the one in use on a lighter plate;
@@ -3883,33 +3899,26 @@ pub(crate) fn render_workspace_nav_buttons(
 /// and, while a terminal column stands in the editor's place, in that column's
 /// tab bar, where the editor's own row is out of sight.
 ///
-/// The plates stand `PLATE_MARGIN` from the drawn face on every side and
-/// `PLATE_GAP` from each other, which is what makes the pair read as one
-/// control rather than two buttons that happen to touch.
+/// `surface` is the skin face the buttons beside it wear, and `inset` is how
+/// far inside its element that face is drawn (the skin's own figure: `button`
+/// insets by 5 all round, `nav_button` by 2 and 1). The element is sized from
+/// the inset so the drawn face comes out the same in every bar, which the
+/// element alone cannot do: the same 32px element gives a 30px face under one
+/// surface and a 22px face under the other.
 pub fn render_right_side_mode(
     right_side_terminal: bool,
     surface: &'static str,
+    inset: gpui::Size<Pixels>,
     cx: &mut App,
 ) -> gpui::Stateful<Div> {
-    /// Plate to the face's edge, the same above, below and to the sides.
-    const PLATE_MARGIN: f32 = 5.;
-    /// Between the two plates.
-    const PLATE_GAP: f32 = 2.;
-    /// A plate, a little larger than the icon it carries.
-    const PLATE: f32 = 22.;
-    /// A skin's button face is drawn a pixel in from the element's left and
-    /// right edges and flush with its top and bottom, so the padding that
-    /// leaves `PLATE_MARGIN` to the face differs by that pixel.
-    const FACE_INSET: f32 = 1.;
-
     let colors = cx.theme().colors().clone();
     // Well clear of the bar it sits on, in a light theme and a dark one: the
     // mode in use has to read at a glance, and the icons stay plain.
     let plate = ui::arcoscope_lighten(colors.tab_bar_background, 0.6);
     let side = |icon: IconName, active: bool| {
         div()
-            .w(px(PLATE))
-            .h(px(PLATE))
+            .w(RIGHT_SIDE_MODE_PLATE)
+            .h(RIGHT_SIDE_MODE_PLATE)
             .flex()
             .items_center()
             .justify_center()
@@ -3940,30 +3949,31 @@ pub fn render_right_side_mode(
                 window.dispatch_action(action, cx);
             }
         })
-        // The same face the buttons beside it wear. The skin insets each
-        // surface differently inside its element (`nav_button` by 1 and 2,
-        // `button` by 5), so asking for the wrong one drew the control larger
-        // than its neighbours however its element was sized.
         .children(ui::arcoscope_skin_surface(surface, cx))
         .child(
             h_flex()
-                .px(px(PLATE_MARGIN + FACE_INSET))
-                .py(px(PLATE_MARGIN))
-                .gap(px(PLATE_GAP))
+                // Measured from the drawn face, so the face's own inset is
+                // added on top of the margin the plates are to keep.
+                .px(inset.width + RIGHT_SIDE_MODE_MARGIN)
+                .py(inset.height + RIGHT_SIDE_MODE_MARGIN)
+                .gap(RIGHT_SIDE_MODE_PLATE_GAP)
                 .child(side(IconName::FileCode, !right_side_terminal))
                 .child(side(IconName::Terminal, right_side_terminal)),
         )
 }
 
-/// What the editor/terminal control takes up: two plates, the gap between them
-/// and the margin round them, plus the pixel the drawn face is inset by.
-pub const RIGHT_SIDE_MODE_WIDTH: Pixels = px(58.);
+/// A plate, a little larger than the icon it carries.
+pub const RIGHT_SIDE_MODE_PLATE: Pixels = px(22.);
 
-/// How far the editor/terminal control stands off the window's right edge,
-/// the same in every bar it is drawn in. A bar that pads its contents off that
-/// edge itself hands that padding to `render_workspace_nav_buttons`, which
-/// takes it back; a bar without any, like a terminal column's, pads by this
-/// much instead.
+/// Plate to the drawn face's edge, the same on all four sides.
+pub const RIGHT_SIDE_MODE_MARGIN: Pixels = px(5.);
+
+/// Between the two plates.
+pub const RIGHT_SIDE_MODE_PLATE_GAP: Pixels = px(2.);
+
+/// How far the control's drawn face stands off the window's right edge, the
+/// same in every bar. What a bar has to add is this less the face's own inset
+/// and less whatever the bar already pads its contents by.
 pub const RIGHT_SIDE_MODE_EDGE: Pixels = px(5.);
 
 

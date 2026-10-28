@@ -49,7 +49,17 @@ const NEW_TAB_BUTTON_WIDTH: f32 = 38.;
 const NEW_TAB_BUTTONS_WIDTH: f32 = 2. * NEW_TAB_BUTTON_WIDTH;
 /// The editor/terminal control in a trailing column's tab bar: two segments
 /// and its gap to the window's edge.
-const RIGHT_SIDE_MODE_WIDTH: f32 = 58. + 5.;
+/// How far inside its element the skin draws the `button` face, which the
+/// new-tab buttons beside the control wear; the control is sized from it so
+/// its face comes out the same height as theirs.
+const BUTTON_INSET: gpui::Size<gpui::Pixels> = gpui::Size {
+    width: px(5.),
+    height: px(5.),
+};
+
+/// What the editor/terminal control takes up in the tab bar: two plates, the
+/// gap between them, the margin round them and the face's inset.
+const RIGHT_SIDE_MODE_WIDTH: f32 = 2. * 22. + 2. + 2. * 5. + 2. * 5.;
 const BOTTOM_BAND_HEIGHT: f32 = 10.;
 
 const LAMP_WORKING: u32 = 0xfe8019;
@@ -2683,9 +2693,14 @@ impl TerminalColumn {
                                 .flex_none()
                                 .flex()
                                 .items_center()
-                                .pr(workspace::pane::RIGHT_SIDE_MODE_EDGE)
+                                // The `button` face is drawn 5px inside its
+                                // element, which is the whole gap wanted here.
+                                .pr(workspace::pane::RIGHT_SIDE_MODE_EDGE - BUTTON_INSET.width)
                                 .child(workspace::pane::render_right_side_mode(
-                                    true, "button", cx,
+                                    true,
+                                    "button",
+                                    BUTTON_INSET,
+                                    cx,
                                 )),
                         )
                     }),
