@@ -3698,10 +3698,12 @@ impl Pane {
                         git_active,
                         right_side_terminal,
                         preview,
-                        // A pixel less than the slot's own padding: measured
-                        // 4pt to the window edge with the full figure, 5 with
-                        // this. The slot's border takes the difference.
-                        DynamicSpacing::Base06.px(cx) - px(1.),
+                        // Two points less than the slot's own padding. The
+                        // skin's `etch`, a near-white line just outside the
+                        // button's outline, sits in the gap and reads as part
+                        // of it, so the editor's row needs one point less than
+                        // a count of bar-coloured pixels suggests.
+                        DynamicSpacing::Base06.px(cx) - px(2.),
                         cx,
                     ))
                 }
