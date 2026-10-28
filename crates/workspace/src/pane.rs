@@ -3873,7 +3873,7 @@ pub(crate) fn render_workspace_nav_buttons(
         .child(
             div()
                 .mr(RIGHT_SIDE_MODE_EDGE - container_padding)
-                .child(render_right_side_mode(right_side_terminal, cx)),
+                .child(render_right_side_mode(right_side_terminal, "nav_button", cx)),
         )
 }
 
@@ -3886,7 +3886,11 @@ pub(crate) fn render_workspace_nav_buttons(
 /// The plates stand `PLATE_MARGIN` from the drawn face on every side and
 /// `PLATE_GAP` from each other, which is what makes the pair read as one
 /// control rather than two buttons that happen to touch.
-pub fn render_right_side_mode(right_side_terminal: bool, cx: &mut App) -> gpui::Stateful<Div> {
+pub fn render_right_side_mode(
+    right_side_terminal: bool,
+    surface: &'static str,
+    cx: &mut App,
+) -> gpui::Stateful<Div> {
     /// Plate to the face's edge, the same above, below and to the sides.
     const PLATE_MARGIN: f32 = 5.;
     /// Between the two plates.
@@ -3936,10 +3940,11 @@ pub fn render_right_side_mode(right_side_terminal: bool, cx: &mut App) -> gpui::
                 window.dispatch_action(action, cx);
             }
         })
-        .children(
-            ui::arcoscope_skin_surface("nav_button", cx)
-                .or_else(|| ui::arcoscope_skin_surface("button", cx)),
-        )
+        // The same face the buttons beside it wear. The skin insets each
+        // surface differently inside its element (`nav_button` by 1 and 2,
+        // `button` by 5), so asking for the wrong one drew the control larger
+        // than its neighbours however its element was sized.
+        .children(ui::arcoscope_skin_surface(surface, cx))
         .child(
             h_flex()
                 .px(px(PLATE_MARGIN + FACE_INSET))

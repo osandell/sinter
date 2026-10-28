@@ -2677,7 +2677,9 @@ impl TerminalColumn {
                                 .flex()
                                 .items_center()
                                 .pr(workspace::pane::RIGHT_SIDE_MODE_EDGE)
-                                .child(workspace::pane::render_right_side_mode(true, cx)),
+                                .child(workspace::pane::render_right_side_mode(
+                                    true, "button", cx,
+                                )),
                         )
                     }),
             )
