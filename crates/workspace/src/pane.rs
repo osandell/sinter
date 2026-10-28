@@ -3865,7 +3865,7 @@ pub(crate) fn render_workspace_nav_buttons(
         // has on a terminal column's bar.
         .child(
             div()
-                .mr(-RIGHT_SIDE_MODE_GAP)
+                .mr(-RIGHT_SIDE_MODE_PULLBACK)
                 .child(render_right_side_mode(right_side_terminal, cx)),
         )
 }
@@ -3947,9 +3947,16 @@ pub fn render_right_side_mode(right_side_terminal: bool, cx: &mut App) -> gpui::
 /// and the margin round them, plus the pixel the drawn face is inset by.
 pub const RIGHT_SIDE_MODE_WIDTH: Pixels = px(58.);
 
-/// How far the editor/terminal control stands off the window's right edge, the
-/// same wherever it is drawn.
-pub const RIGHT_SIDE_MODE_GAP: Pixels = px(3.);
+/// How far the editor/terminal control stands off the window's right edge.
+/// The nav row sits in a strip that already pads 8px off that edge, so the
+/// control pulls `RIGHT_SIDE_MODE_PULLBACK` of that back; a bar without such
+/// padding, like a terminal column's, pads by this much instead. The two have
+/// to add up, or the control sits closer to the edge in one mode than in the
+/// other.
+pub const RIGHT_SIDE_MODE_EDGE: Pixels = px(5.);
+
+/// What the control takes back from the nav strip's own 8px of padding.
+pub const RIGHT_SIDE_MODE_PULLBACK: Pixels = px(3.);
 
 impl Pane {
     fn render_single_row_tab_bar(
