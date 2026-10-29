@@ -1285,7 +1285,9 @@
     // Whether to show the editor buttons: the editor toolbar (breadcrumbs +
     // quick actions) and the tab bar's navigation, new, split, and zoom buttons.
     // When disabled, only the tabs themselves remain, freeing up vertical space.
-    "editor_buttons": true,
+    // Off in Sinter, on every platform: the editor sits beside the terminal
+    // column under Arcoscope's bar. View > Toggle Editor Buttons brings them back.
+    "editor_buttons": false,
     // Whether or not to show pinned tabs in a separate row.
     // When enabled, pinned tabs appear in a top row and unpinned tabs in a bottom row.
     // When disabled, all tabs appear in a single row (default behavior).
@@ -1753,8 +1755,9 @@
   },
   // Status bar-related settings.
   "status_bar": {
-    // Whether to show the status bar.
-    "experimental.show": true,
+    // Whether to show the status bar. Off in Sinter, on every platform, as
+    // the tab bar's editor buttons. View > Toggle Bottom Bar brings it back.
+    "experimental.show": false,
     // Whether to show the name of the active file in the status bar.
     "show_active_file": false,
     // Whether to show the active language button in the status bar.
