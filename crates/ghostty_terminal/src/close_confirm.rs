@@ -29,6 +29,7 @@ impl TerminalColumn {
             gpui::deferred(
                 div()
                     .id("ghostty-close-confirm")
+                    .occlude()
                     .track_focus(&confirm.focus_handle)
                     .absolute()
                     .left(px(confirm.x))

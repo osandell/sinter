@@ -3128,6 +3128,7 @@ impl Render for TerminalColumn {
                         .child(
                             div()
                                 .elevation_3(cx)
+                                .occlude()
                                 .child(palette.clone())
                                 .on_mouse_down_out(cx.listener(
                                     |this, _: &MouseDownEvent, window, cx| {

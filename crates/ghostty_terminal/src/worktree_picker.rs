@@ -199,6 +199,7 @@ impl TerminalColumn {
             gpui::deferred(
                 div()
                     .id("ghostty-worktree-picker")
+                    .occlude()
                     .track_focus(&picker.focus_handle)
                     .absolute()
                     .left(px(picker.x))

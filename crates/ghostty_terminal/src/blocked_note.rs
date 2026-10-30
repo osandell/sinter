@@ -138,6 +138,10 @@ impl TerminalColumn {
             gpui::deferred(
                 div()
                     .id("ghostty-blocked-note")
+                    // Without it the terminal under the panel still counts as
+                    // hovered and takes the press, while the button keeps the
+                    // release: Ghostty is left selecting with the button "down".
+                    .occlude()
                     .absolute()
                     .left(px(note.x))
                     .top(px(note.y))
