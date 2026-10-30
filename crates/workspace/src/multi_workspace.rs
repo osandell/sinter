@@ -2316,6 +2316,11 @@ impl Render for MultiWorkspace {
                 )
                 .children(right_sidebar)
                 .child(self.workspace().read(cx).modal_layer.clone())
+                .children(crate::arcoscope_hints::render_overlay(
+                    window,
+                    self.workspace().read(cx).active_pane().entity_id(),
+                    cx,
+                ))
                 .children(self.sidebar_overlay.as_ref().map(|view| {
                     deferred(div().absolute().size_full().inset_0().occlude().child(
                         v_flex().h(px(0.0)).top_20().items_center().child(

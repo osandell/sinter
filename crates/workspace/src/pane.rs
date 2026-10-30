@@ -3458,20 +3458,23 @@ impl Pane {
             return;
         };
         if workspace.read(cx).trailing_column().is_some() {
+            crate::arcoscope_hints::set_editor_tabs(window, cx.entity_id(), 0.0, Vec::new(), cx);
             return;
         }
 
-        // First few tabs only (matches arcoscope's ZED_HINT_LABELS: q w f p).
-        let n = self.items.len().min(4);
         let mut center_y: f32 = 0.0;
-        let mut xs: Vec<f32> = Vec::with_capacity(n);
-        for ix in 0..n {
+        let mut xs: Vec<f32> = Vec::with_capacity(self.items.len());
+        for ix in 0..self.items.len() {
             let Some(b) = self.tab_bar_scroll_handle.bounds_for_item(ix) else {
-                return;
+                break;
             };
             xs.push(f32::from(b.origin.x));
             center_y = f32::from(b.origin.y) + f32::from(b.size.height) / 2.0;
         }
+        crate::arcoscope_hints::set_editor_tabs(window, cx.entity_id(), center_y, xs.clone(), cx);
+        // The daemon's own copy, for the hints it still draws itself: the
+        // first few tabs only (arcoscope's q w f p).
+        xs.truncate(4);
         if xs.is_empty() {
             return;
         }
@@ -3496,6 +3499,7 @@ impl Pane {
             cx.notify();
             return;
         }
+        crate::arcoscope_hints::set_editor_tabs(window, cx.entity_id(), 0.0, Vec::new(), cx);
         if let Some(msg) = self.arcoscope_tab_message(0.0, &[], window, cx) {
             self.send_arcoscope_tab_message(msg);
         }
@@ -3989,8 +3993,6 @@ pub const RIGHT_SIDE_MODE_PLATE_GAP: Pixels = px(2.);
 /// same in every bar. What a bar has to add is this less the face's own inset
 /// and less whatever the bar already pads its contents by.
 pub const RIGHT_SIDE_MODE_EDGE: Pixels = px(5.);
-
-
 
 impl Pane {
     fn render_single_row_tab_bar(

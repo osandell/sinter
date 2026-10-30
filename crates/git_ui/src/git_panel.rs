@@ -5530,6 +5530,7 @@ impl GitPanel {
                 out
             }
         };
+        workspace::arcoscope_hints::set_sidebar_rows(window, true, pairs.clone(), cx);
 
         let pairs_str = pairs
             .iter()
@@ -5572,6 +5573,7 @@ impl GitPanel {
             f32::from(wb.size.width),
             f32::from(wb.size.height),
         );
+        workspace::arcoscope_hints::set_sidebar_rows(window, true, Vec::new(), cx);
         let msg = format!("zed-sidebar\tgit\t{}\t{}", path, frame);
         if self.last_reported_git_geom.as_deref() == Some(msg.as_str()) {
             return;
@@ -5586,7 +5588,12 @@ impl GitPanel {
     }
 
     /// Open the Nth git quick-jump target's diff (arcoscope → Zed).
-    pub fn arcoscope_open_hint(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+    pub fn arcoscope_open_hint(
+        &mut self,
+        index: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let targets = self.git_hint_targets();
         let Some(&(entry_ix, _)) = targets.get(index) else {
             return;

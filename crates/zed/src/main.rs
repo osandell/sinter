@@ -9,8 +9,12 @@ mod zed;
 // the CLI finds through CFBundleExecutable; /usr/bin/sinter on Linux). The data
 // and config directories follow APP_NAME, which is Sinter's.
 const _: () = assert!(
-    paths::APP_NAME_LOWERCASE.as_bytes().eq_ignore_ascii_case(b"sinter")
-        && env!("CARGO_BIN_NAME").as_bytes().eq_ignore_ascii_case(b"zed"),
+    paths::APP_NAME_LOWERCASE
+        .as_bytes()
+        .eq_ignore_ascii_case(b"sinter")
+        && env!("CARGO_BIN_NAME")
+            .as_bytes()
+            .eq_ignore_ascii_case(b"zed"),
     "Sinter: APP_NAME is Sinter and the binary is built as zed (see above).",
 );
 
@@ -531,10 +535,7 @@ fn main() {
         // this build's own bundle id: since the rename to Sinter it is no longer
         // `dev.zed.Zed*`, and the old prefix test took every activation of Sinter
         // itself for another app's, which left the editor's bars neutral.
-        ui::set_arcoscope_app_front(
-            bundle_id == release_channel::RELEASE_CHANNEL.app_id(),
-            cx,
-        );
+        ui::set_arcoscope_app_front(bundle_id == release_channel::RELEASE_CHANNEL.app_id(), cx);
 
         const GHOSTTY_DEV_BUNDLE_ID: &str = "com.mitchellh.ghostty.dev";
         if bundle_id != GHOSTTY_DEV_BUNDLE_ID {
@@ -834,6 +835,13 @@ fn main() {
         terminal_view::init(cx);
         #[cfg(any(target_os = "macos", target_os = "linux"))]
         ghostty_terminal::init(cx);
+        workspace::arcoscope_hints::set_sidebar_actions(
+            workspace::arcoscope_hints::SidebarActions {
+                open: arcoscope_open_sidebar_hint,
+                scroll: arcoscope_scroll_sidebar,
+            },
+            cx,
+        );
         ui_prompt::refresh(cx);
         journal::init(app_state.clone(), cx);
         encoding_selector::init(cx);
@@ -1600,17 +1608,24 @@ fn handle_open_request(request: OpenRequest, app_state: Arc<AppState>, cx: &mut 
                         mw.update(cx, |mw, window, cx| {
                             let workspace = mw.workspace().clone();
                             if let Some(panel) = workspace.read(cx).panel::<ProjectPanel>(cx) {
-                                panel.update(cx, |panel, cx| panel.arcoscope_resend_geometry(window, cx));
+                                panel.update(cx, |panel, cx| {
+                                    panel.arcoscope_resend_geometry(window, cx)
+                                });
                             }
-                            if let Some(panel) = workspace.read(cx).panel::<git_ui::git_panel::GitPanel>(cx) {
-                                panel.update(cx, |panel, cx| panel.arcoscope_resend_geometry(window, cx));
+                            if let Some(panel) =
+                                workspace.read(cx).panel::<git_ui::git_panel::GitPanel>(cx)
+                            {
+                                panel.update(cx, |panel, cx| {
+                                    panel.arcoscope_resend_geometry(window, cx)
+                                });
                             }
                         })
                         .log_err();
                     }
                 }
             }
-            OpenRequestKind::ArcoscopeLfClose => {
+            OpenRequestKind::ArcoscopeLfClose =>
+            {
                 #[cfg(target_os = "macos")]
                 for window in cx.windows() {
                     if let Some(mw) = window.downcast::<workspace::MultiWorkspace>() {
@@ -1700,8 +1715,7 @@ fn handle_open_request(request: OpenRequest, app_state: Arc<AppState>, cx: &mut 
                 let _ = terminal;
                 #[cfg(any(target_os = "macos", target_os = "linux"))]
                 {
-                    let on = terminal
-                        .unwrap_or(!ghostty_terminal::right_side_terminal(cx));
+                    let on = terminal.unwrap_or(!ghostty_terminal::right_side_terminal(cx));
                     ghostty_terminal::set_right_side_terminal(on, cx);
                 }
             }
@@ -2624,6 +2638,53 @@ fn check_for_conpty_dll() {
     }
 }
 
+/// arcoscope's § badge `index` picked in `handle`: the git panel's row (its
+/// diff) or the project panel's, as `activate-panel-entry` does it.
+fn arcoscope_open_sidebar_hint(
+    handle: gpui::AnyWindowHandle,
+    git: bool,
+    index: usize,
+    cx: &mut App,
+) {
+    let Some(multi_workspace) = handle.downcast::<workspace::MultiWorkspace>() else {
+        return;
+    };
+    multi_workspace
+        .update(cx, |multi_workspace, window, cx| {
+            let workspace = multi_workspace.workspace().clone();
+            if git {
+                if let Some(panel) = workspace.read(cx).panel::<git_ui::git_panel::GitPanel>(cx) {
+                    panel.update(cx, |panel, cx| panel.arcoscope_open_hint(index, window, cx));
+                }
+            } else if let Some(panel) = workspace.read(cx).panel::<ProjectPanel>(cx) {
+                panel.update(cx, |panel, cx| panel.arcoscope_open_hint(index, window, cx));
+            }
+        })
+        .log_err();
+}
+
+/// The project panel in `handle` scrolled to target `index` (paging §).
+fn arcoscope_scroll_sidebar(
+    handle: gpui::AnyWindowHandle,
+    index: usize,
+    strategy: &'static str,
+    cx: &mut App,
+) {
+    let Some(multi_workspace) = handle.downcast::<workspace::MultiWorkspace>() else {
+        return;
+    };
+    multi_workspace
+        .update(cx, |multi_workspace, _, cx| {
+            let workspace = multi_workspace.workspace().clone();
+            if let Some(panel) = workspace.read(cx).panel::<ProjectPanel>(cx) {
+                panel.update(cx, |panel, cx| {
+                    panel.arcoscope_scroll_to(index, strategy, cx)
+                });
+            }
+        })
+        .log_err();
+}
+
 /// arcoscope: the window whose visible worktree is `target` (trailing slash ignored).
 /// The window and workspace whose visible worktree root is `target`. Every
 /// workspace of a window is searched, not only its active one: with one window
@@ -2646,12 +2707,12 @@ fn arcoscope_target(
                         // at its hidden home in the unified one.
                         !ghostty_terminal::is_detached_home(workspace, cx)
                             && workspace.read(cx).visible_worktrees(cx).any(|wt| {
-                            wt.read(cx)
-                                .abs_path()
-                                .to_string_lossy()
-                                .trim_end_matches('/')
-                                == target
-                        })
+                                wt.read(cx)
+                                    .abs_path()
+                                    .to_string_lossy()
+                                    .trim_end_matches('/')
+                                    == target
+                            })
                     })
                     .cloned()
             })

@@ -2170,6 +2170,7 @@ impl ProjectPanel {
         } else {
             Vec::new()
         };
+        workspace::arcoscope_hints::set_sidebar_rows(window, false, pairs.clone(), cx);
         let pairs_str = pairs
             .iter()
             .map(|(i, x, y)| format!("{}:{:.0}:{:.0}", i, x, y))
@@ -2211,6 +2212,7 @@ impl ProjectPanel {
             f32::from(wb.size.width),
             f32::from(wb.size.height),
         );
+        workspace::arcoscope_hints::set_sidebar_rows(window, false, Vec::new(), cx);
         let msg = format!("zed-sidebar\tall\t{}\t{}", path, frame);
         if self.last_reported_geom.as_deref() == Some(msg.as_str()) {
             return;
@@ -2267,7 +2269,12 @@ impl ProjectPanel {
     /// open logic the old hint-letter handler used: a closed folder expands (and
     /// is selected), an expanded+selected folder collapses, an expanded+unselected
     /// folder is just selected, and a file is opened as a preview.
-    pub fn arcoscope_open_hint(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+    pub fn arcoscope_open_hint(
+        &mut self,
+        index: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let targets = self.hint_targets();
         let Some(target) = targets.get(index) else {
             return;
@@ -4945,7 +4952,8 @@ impl ProjectPanel {
                         )
                     });
                     copy_tasks.push(task);
-                    disambiguation_range = destination.disambiguation_range.or(disambiguation_range);
+                    disambiguation_range =
+                        destination.disambiguation_range.or(disambiguation_range);
                 }
 
                 let item_count = copy_tasks.len();

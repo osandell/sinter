@@ -26,11 +26,11 @@ use gpui::{App, AppContext as _, AsyncApp, Entity, Global, TaskExt as _};
 use parking_lot::Mutex;
 use util::paths::PathExt as _;
 
+use crate::ffi;
 use crate::{
     ClaudeState, GhosttyTerminal, PickWorktree, TerminalColumn, TerminalColumnEvent,
     TerminalColumns, TerminalOptions, claude_status::is_claude,
 };
-use crate::ffi;
 
 const HEARTBEAT: Duration = Duration::from_secs(4);
 const MAILBOX_MAX_AGE_MS: i64 = 10_000;
@@ -103,7 +103,10 @@ fn ack_path() -> PathBuf {
 }
 
 fn read_response_path() -> PathBuf {
-    runtime_path("/tmp/arcoscope-ghostty-read.json", "arcoscope-ghostty-read.json")
+    runtime_path(
+        "/tmp/arcoscope-ghostty-read.json",
+        "arcoscope-ghostty-read.json",
+    )
 }
 
 fn tab_strips_dir() -> PathBuf {
@@ -206,9 +209,11 @@ fn arcoscope_follow_request(scopes: &str, worktree: &Path) -> Option<String> {
     let scopes: Vec<serde_json::Value> = serde_json::from_str(scopes).ok()?;
     let worktree = worktree.to_string_lossy();
     let scope = scopes.iter().find(|scope| {
-        scope["worktrees"]
-            .as_array()
-            .is_some_and(|worktrees| worktrees.iter().any(|path| path.as_str() == Some(&worktree)))
+        scope["worktrees"].as_array().is_some_and(|worktrees| {
+            worktrees
+                .iter()
+                .any(|path| path.as_str() == Some(&worktree))
+        })
     })?;
     if scope["active"].as_bool() == Some(true)
         && scope["active_worktree"].as_str() == Some(&worktree)
@@ -601,35 +606,35 @@ fn start_control_server(cx: &mut App) {
     for listener in listeners {
         let requests_tx = requests_tx.clone();
         let spawned = std::thread::Builder::new()
-        .name("arcoscope-control".into())
-        .spawn(move || {
-            for stream in listener.incoming() {
-                let Ok(mut stream) = stream else {
-                    continue;
-                };
-                let mut buffer = vec![0u8; 8192];
-                let Ok(length) = stream.read(&mut buffer) else {
-                    continue;
-                };
-                let line = String::from_utf8_lossy(&buffer[..length])
-                    .trim()
-                    .to_string();
-                let (reply_tx, reply_rx) = std_mpsc::channel();
-                if requests_tx
-                    .unbounded_send(ControlRequest {
-                        line,
-                        reply: reply_tx,
-                    })
-                    .is_err()
-                {
-                    break;
+            .name("arcoscope-control".into())
+            .spawn(move || {
+                for stream in listener.incoming() {
+                    let Ok(mut stream) = stream else {
+                        continue;
+                    };
+                    let mut buffer = vec![0u8; 8192];
+                    let Ok(length) = stream.read(&mut buffer) else {
+                        continue;
+                    };
+                    let line = String::from_utf8_lossy(&buffer[..length])
+                        .trim()
+                        .to_string();
+                    let (reply_tx, reply_rx) = std_mpsc::channel();
+                    if requests_tx
+                        .unbounded_send(ControlRequest {
+                            line,
+                            reply: reply_tx,
+                        })
+                        .is_err()
+                    {
+                        break;
+                    }
+                    let reply = reply_rx
+                        .recv_timeout(Duration::from_secs(10))
+                        .unwrap_or_else(|_| "error timeout".into());
+                    stream.write_all(format!("{reply}\n").as_bytes()).ok();
                 }
-                let reply = reply_rx
-                    .recv_timeout(Duration::from_secs(10))
-                    .unwrap_or_else(|_| "error timeout".into());
-                stream.write_all(format!("{reply}\n").as_bytes()).ok();
-            }
-        });
+            });
         if let Err(error) = spawned {
             log::error!("could not start the arcoscope control thread: {error}");
         }
@@ -792,8 +797,9 @@ async fn handle_control(line: &str, cx: &mut AsyncApp) -> String {
             let numbers: Option<Vec<f64>> = (1..=5)
                 .map(|index| argument(index).and_then(|value| value.parse().ok()))
                 .collect();
-            let Some([window_number, x, y, width, height]) =
-                numbers.as_deref().and_then(|numbers| <[f64; 5]>::try_from(numbers).ok())
+            let Some([window_number, x, y, width, height]) = numbers
+                .as_deref()
+                .and_then(|numbers| <[f64; 5]>::try_from(numbers).ok())
             else {
                 return "error missing-args".into();
             };
@@ -859,50 +865,116 @@ async fn handle_control(line: &str, cx: &mut AsyncApp) -> String {
             ) else {
                 return "error missing-args".into();
             };
-            cx.update(|cx| {
-                // The index counts the worktree's tabs as arcoscope's mini
-                // screen shows them: the left column's first, then the right
-                // one's, which is the order `list-tabs` reports.
-                let columns = columns_of_worktree(&normalize(title), cx);
-                if columns.is_empty() {
-                    return "no-window".into();
-                }
-                let mut rest = index;
-                let found = columns.into_iter().find_map(|column| {
-                    let count = column.read(cx).tabs().len();
-                    if rest < count {
-                        return Some((column, rest));
-                    }
-                    rest -= count;
-                    None
-                });
-                let Some((column, local)) = found else {
-                    return "no-tab".into();
-                };
-                let Some((tab_id, terminal)) = column
-                    .read(cx)
-                    .tabs()
-                    .get(local)
-                    .and_then(|tab| Some((tab.id(), tab.focused_terminal()?)))
-                else {
-                    return "no-tab".into();
-                };
-                let trailing = TerminalColumns::side_of(&column, cx) == crate::ColumnSide::Trailing;
-                show_column(&column, true, cx);
-                if trailing {
-                    // The right side may have been showing the editor: its
-                    // column reaches the window on the deferred sync, and only
-                    // then can one of its tabs take the keyboard.
-                    cx.defer(move |cx| focus_tab_terminal(&column, tab_id, &terminal, cx));
+            cx.update(|cx| select_tab(&normalize(title), index, cx))
+        }
+        // arcoscope's hint badges, drawn in the window that has the keyboard
+        // (`workspace::arcoscope_hints`). `<path>` is arcoscope's scope, for
+        // when no Sinter window has it.
+        // `hints-tabs <path> <terminal labels> <editor labels>` (hold 3).
+        "hints-tabs" => cx.update(|cx| {
+            let Some(handle) = hint_window(argument(1), cx) else {
+                return "no-window".into();
+            };
+            let terminal_labels: Vec<char> = argument(2).unwrap_or_default().chars().collect();
+            let editor_labels: Vec<char> = argument(3).unwrap_or_default().chars().collect();
+            let badges = terminal_tab_badges(handle, &terminal_labels, cx);
+            let count = badges.len();
+            workspace::arcoscope_hints::show_tabs(handle, badges, editor_labels, cx);
+            format!("shown\t{count}")
+        }),
+        // `hints-sidebar <path> <labels> <page>` (hold §, a page key).
+        "hints-sidebar" => cx.update(|cx| {
+            let Some(handle) = hint_window(argument(1), cx) else {
+                return "no-window".into();
+            };
+            let labels: Vec<char> = argument(2).unwrap_or_default().chars().collect();
+            let page = argument(3).and_then(|page| page.parse().ok()).unwrap_or(0);
+            let git = workspace::arcoscope_hints::sidebar_is_git(handle, cx);
+            let page = if git { 0 } else { page };
+            workspace::arcoscope_hints::show_sidebar(handle, labels.clone(), page, cx);
+            // The page's rows into view: the first one at the top for the
+            // first page, the last one at the bottom for a later one.
+            if !git {
+                let (row, strategy) = if page == 0 {
+                    (0, "top")
                 } else {
-                    focus_tab_terminal(&column, tab_id, &terminal, cx);
+                    ((page + 1) * labels.len() - 1, "bottom")
+                };
+                if let Some(actions) = workspace::arcoscope_hints::sidebar_actions(cx) {
+                    (actions.scroll)(handle, row, strategy, cx);
                 }
-                // A tab on the right side says so, since the caller moves the
-                // keyboard itself and must not take it back to the left. The
-                // left side answers as it always did.
-                if trailing { "selected\tright" } else { "selected" }.to_string()
+            }
+            if git { "shown\tgit" } else { "shown\tall" }.into()
+        }),
+        // `hints-pick <tab|editor|sidebar> <slot>`: the badge picked, acted on
+        // in the window it is drawn in.
+        "hints-pick" => {
+            let (Some(kind), Some(slot)) = (
+                argument(1),
+                argument(2).and_then(|slot| slot.parse::<usize>().ok()),
+            ) else {
+                return "error missing-args".into();
+            };
+            cx.update(|cx| pick_hint(kind, slot, cx))
+        }
+        // `hints-words <json badges>` (hold + or ´): placed by arcoscope from
+        // `hints-viewport`, drawn in the window that was read.
+        "hints-words" => {
+            let json = fields
+                .get(1..)
+                .map(|rest| rest.join("\t"))
+                .unwrap_or_default();
+            let badges: Vec<workspace::arcoscope_hints::Badge> = match serde_json::from_str(&json) {
+                Ok(badges) => badges,
+                Err(error) => return format!("error {error}"),
+            };
+            cx.update(|cx| {
+                let handle = cx
+                    .try_global::<ViewportWindow>()
+                    .and_then(|read| read.0)
+                    .or_else(|| hint_window(None, cx));
+                let Some(handle) = handle else {
+                    return "no-window".into();
+                };
+                if badges.is_empty() {
+                    workspace::arcoscope_hints::clear(
+                        Some(workspace::arcoscope_hints::Kind::Words),
+                        cx,
+                    );
+                } else {
+                    workspace::arcoscope_hints::show_words(handle, badges, cx);
+                }
+                "shown".into()
             })
         }
+        // `hints-clear <tabs|sidebar|words|all>`.
+        "hints-clear" => cx.update(|cx| {
+            use workspace::arcoscope_hints::Kind;
+            let kind = match argument(1) {
+                Some("tabs") => Some(Kind::Tabs),
+                Some("sidebar") => Some(Kind::Sidebar),
+                Some("words") => Some(Kind::Words),
+                _ => None,
+            };
+            workspace::arcoscope_hints::clear(kind, cx);
+            "cleared".into()
+        }),
+        // What the terminal with the keyboard shows, as the mailbox's
+        // `read viewport` answers it, straight back on the socket.
+        "hints-viewport" => cx.update(|cx| {
+            let terminal = hint_window(None, cx)
+                .and_then(|handle| focused_terminal_in(handle, cx))
+                .or_else(|| mail_target(cx));
+            let Some(terminal) = terminal else {
+                return "no-terminal".into();
+            };
+            let window = window_of_terminal(&terminal, cx);
+            cx.set_global(ViewportWindow(window));
+            match viewport(&terminal, now_ms(), cx) {
+                Some(payload) => payload.to_string(),
+                None => "no-terminal".into(),
+            }
+        }),
         // `new-agent-tab`: what the terminal column's robot button does, in the
         // window's active workspace. arcoscope's P + R sends it here, since a
         // key chord never reaches Zed's keymap while a terminal has the keyboard.
@@ -911,7 +983,9 @@ async fn handle_control(line: &str, cx: &mut AsyncApp) -> String {
             let active = cx
                 .active_window()
                 .filter(|window| window.downcast::<workspace::MultiWorkspace>().is_some());
-            let Some(window) = active.or_else(|| workspace::unified_window_handle(cx).map(Into::into)) else {
+            let Some(window) =
+                active.or_else(|| workspace::unified_window_handle(cx).map(Into::into))
+            else {
                 return "no-window".into();
             };
             window
@@ -1248,7 +1322,10 @@ fn window_for(column: &Entity<TerminalColumn>, cx: &App) -> Option<gpui::AnyWind
 }
 
 /// The window `terminal` is drawn in.
-fn window_of_terminal(terminal: &Entity<GhosttyTerminal>, cx: &App) -> Option<gpui::AnyWindowHandle> {
+fn window_of_terminal(
+    terminal: &Entity<GhosttyTerminal>,
+    cx: &App,
+) -> Option<gpui::AnyWindowHandle> {
     let column = TerminalColumns::all(cx).into_iter().find(|column| {
         column
             .read(cx)
@@ -1272,7 +1349,8 @@ fn columns_of_worktree(path: &Path, cx: &App) -> Vec<Entity<TerminalColumn>> {
                 .is_some_and(|own| own == path)
         })
         .collect();
-    columns.sort_by_key(|column| TerminalColumns::side_of(column, cx) == crate::ColumnSide::Trailing);
+    columns
+        .sort_by_key(|column| TerminalColumns::side_of(column, cx) == crate::ColumnSide::Trailing);
     columns
 }
 
@@ -1319,7 +1397,9 @@ fn show_terminal(column: &Entity<TerminalColumn>, focus: bool, cx: &mut App) {
     // when only raised.
     if !focus {
         if crate::detach::is_detached_window(window, cx) {
-            window.update(cx, |_, window, _| window.activate_window()).ok();
+            window
+                .update(cx, |_, window, _| window.activate_window())
+                .ok();
         }
         return;
     }
@@ -1445,6 +1525,194 @@ fn descends_from(mut pid: i32, ancestor: i32) -> bool {
         }
     }
     false
+}
+
+/// Selects tab `index` of the worktree at `path`, counting the tabs as
+/// arcoscope's mini screen shows them: the left column's first, then the
+/// right one's, which is the order `list-tabs` reports.
+fn select_tab(path: &Path, index: usize, cx: &mut App) -> String {
+    let columns = columns_of_worktree(path, cx);
+    if columns.is_empty() {
+        return "no-window".into();
+    }
+    let mut rest = index;
+    let found = columns.into_iter().find_map(|column| {
+        let count = column.read(cx).tabs().len();
+        if rest < count {
+            return Some((column, rest));
+        }
+        rest -= count;
+        None
+    });
+    let Some((column, local)) = found else {
+        return "no-tab".into();
+    };
+    let Some((tab_id, terminal)) = column
+        .read(cx)
+        .tabs()
+        .get(local)
+        .and_then(|tab| Some((tab.id(), tab.focused_terminal()?)))
+    else {
+        return "no-tab".into();
+    };
+    let trailing = TerminalColumns::side_of(&column, cx) == crate::ColumnSide::Trailing;
+    show_column(&column, true, cx);
+    if trailing {
+        // The right side may have been showing the editor: its column
+        // reaches the window on the deferred sync, and only then can one of
+        // its tabs take the keyboard.
+        cx.defer(move |cx| focus_tab_terminal(&column, tab_id, &terminal, cx));
+    } else {
+        focus_tab_terminal(&column, tab_id, &terminal, cx);
+    }
+    // A tab on the right side says so, since the caller moves the keyboard
+    // itself and must not take it back to the left. The left side answers as
+    // it always did.
+    if trailing {
+        "selected\tright"
+    } else {
+        "selected"
+    }
+    .to_string()
+}
+
+/// The window whose terminal `hints-viewport` read last: the word badges go
+/// over it.
+struct ViewportWindow(Option<gpui::AnyWindowHandle>);
+
+impl gpui::Global for ViewportWindow {}
+
+/// The window hint badges go in: the Sinter window with the keyboard, else
+/// the one showing arcoscope's scope `path`, else the unified one.
+fn hint_window(path: Option<&str>, cx: &App) -> Option<gpui::AnyWindowHandle> {
+    if let Some(active) = cx.active_window()
+        && active.downcast::<workspace::MultiWorkspace>().is_some()
+    {
+        return Some(active);
+    }
+    path.and_then(|path| {
+        columns_of_worktree(&normalize(path), cx)
+            .first()
+            .and_then(|column| window_for(column, cx))
+    })
+    .or_else(|| workspace::unified_window_handle(cx).map(Into::into))
+}
+
+/// The worktree on screen in `handle`.
+fn window_path(handle: gpui::AnyWindowHandle, cx: &App) -> Option<PathBuf> {
+    let multi_workspace = handle.downcast::<workspace::MultiWorkspace>()?;
+    let workspace = multi_workspace.read(cx).ok()?.workspace().clone();
+    let worktree = workspace.read(cx).visible_worktrees(cx).next()?;
+    Some(normalize(&worktree.read(cx).abs_path().to_string_lossy()))
+}
+
+/// The terminal with the keyboard in `handle`: the focused one of the
+/// selected tabs of its columns, else the left column's.
+fn focused_terminal_in(
+    handle: gpui::AnyWindowHandle,
+    cx: &mut App,
+) -> Option<Entity<GhosttyTerminal>> {
+    let path = window_path(handle, cx)?;
+    let terminals: Vec<Entity<GhosttyTerminal>> = columns_of_worktree(&path, cx)
+        .iter()
+        .filter_map(|column| {
+            let column = column.read(cx);
+            column
+                .tabs()
+                .get(column.selected_index())?
+                .focused_terminal()
+        })
+        .collect();
+    let focused = handle
+        .update(cx, |_, window, cx| {
+            terminals.iter().position(|terminal| {
+                gpui::Focusable::focus_handle(terminal.read(cx), cx).contains_focused(window, cx)
+            })
+        })
+        .ok()
+        .flatten();
+    terminals.get(focused.unwrap_or(0)).cloned()
+}
+
+/// A badge on each terminal tab in `handle`, the left column's first.
+fn terminal_tab_badges(
+    handle: gpui::AnyWindowHandle,
+    labels: &[char],
+    cx: &App,
+) -> Vec<workspace::arcoscope_hints::Badge> {
+    let Some(path) = window_path(handle, cx) else {
+        return Vec::new();
+    };
+    let mut labels = labels.iter();
+    let mut badges = Vec::new();
+    for column in columns_of_worktree(&path, cx) {
+        if window_for(&column, cx) != Some(handle) {
+            continue;
+        }
+        let (center, xs) = column.read(cx).tab_positions();
+        for x in xs {
+            let Some(&label) = labels.next() else {
+                return badges;
+            };
+            badges.push(workspace::arcoscope_hints::Badge {
+                label,
+                x,
+                y: center,
+                hangs: false,
+                height: None,
+                outline: Vec::new(),
+            });
+        }
+    }
+    badges
+}
+
+/// Acts on badge `slot` of `kind` in the window it is drawn in.
+fn pick_hint(kind: &str, slot: usize, cx: &mut App) -> String {
+    use workspace::arcoscope_hints::{self as hints, Kind};
+    match kind {
+        "tab" => {
+            let Some(path) =
+                hints::shown_in(Kind::Tabs, cx).and_then(|handle| window_path(handle, cx))
+            else {
+                return "no-hints".into();
+            };
+            select_tab(&path, slot, cx)
+        }
+        "editor" => {
+            let Some(handle) = hints::shown_in(Kind::Tabs, cx) else {
+                return "no-hints".into();
+            };
+            let Some(multi_workspace) = handle.downcast::<workspace::MultiWorkspace>() else {
+                return "no-window".into();
+            };
+            multi_workspace
+                .update(cx, |multi_workspace, window, cx| {
+                    let pane = multi_workspace.workspace().read(cx).active_pane().clone();
+                    pane.update(cx, |pane, cx| {
+                        if slot < pane.items_len() {
+                            pane.activate_item(slot, true, true, window, cx);
+                        }
+                    });
+                    window.activate_window();
+                })
+                .map_or_else(|_| "no-window".into(), |()| "selected".into())
+        }
+        "sidebar" => {
+            let (Some(handle), Some(base)) =
+                (hints::shown_in(Kind::Sidebar, cx), hints::sidebar_base(cx))
+            else {
+                return "no-hints".into();
+            };
+            let Some(actions) = hints::sidebar_actions(cx) else {
+                return "no-panel".into();
+            };
+            let git = hints::sidebar_is_git(handle, cx);
+            (actions.open)(handle, git, base + slot, cx);
+            "opened".into()
+        }
+        _ => "error unknown-kind".into(),
+    }
 }
 
 fn tab_hints(path: &Path, cx: &mut App) -> String {
@@ -1811,7 +2079,8 @@ fn watch_file(path: &Path, changes: mpsc::UnboundedSender<()>) {
     let mut buffer = [0u8; 4096];
     let header = std::mem::size_of::<libc::inotify_event>();
     loop {
-        let read = unsafe { libc::read(fd, buffer.as_mut_ptr() as *mut libc::c_void, buffer.len()) };
+        let read =
+            unsafe { libc::read(fd, buffer.as_mut_ptr() as *mut libc::c_void, buffer.len()) };
         if read <= 0 {
             break;
         }
@@ -1820,7 +2089,10 @@ fn watch_file(path: &Path, changes: mpsc::UnboundedSender<()>) {
         while offset + header <= read as usize {
             let event = unsafe { &*(buffer.as_ptr().add(offset) as *const libc::inotify_event) };
             let name_bytes = &buffer[offset + header..offset + header + event.len as usize];
-            let event_name = name_bytes.split(|&byte| byte == 0).next().unwrap_or_default();
+            let event_name = name_bytes
+                .split(|&byte| byte == 0)
+                .next()
+                .unwrap_or_default();
             ours |= event_name == name.as_slice();
             offset += header + event.len as usize;
         }
