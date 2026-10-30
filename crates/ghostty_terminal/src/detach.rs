@@ -9,8 +9,9 @@
 
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context as _, Result, anyhow};
+use anyhow::{Result, anyhow};
 use gpui::{App, AppContext as _, Entity, Global, TaskExt as _, WeakEntity, WindowHandle};
+use project::ProjectPath;
 use util::ResultExt as _;
 use workspace::{DetachedWindows, MultiWorkspace, Workspace};
 
@@ -150,9 +151,13 @@ pub fn detach(path: &Path, cx: &mut App) -> Result<WindowHandle<MultiWorkspace>>
             cx.new(|cx| MultiWorkspace::new(workspace, window, cx))
         }
     });
-    // Taken by the new workspace; whatever is left (the window failed) goes.
-    cx.default_global::<DetachedScopes>().adopting = None;
-    let window = opened.context("could not open a window for the scope")?;
+    let window = match opened {
+        Ok(window) => window,
+        Err(error) => {
+            cx.default_global::<DetachedScopes>().adopting = None;
+            return Err(error.context("could not open a window for the scope"));
+        }
+    };
 
     cx.default_global::<DetachedWindows>()
         .0
@@ -183,9 +188,26 @@ pub fn detach(path: &Path, cx: &mut App) -> Result<WindowHandle<MultiWorkspace>>
         })
         .log_err();
 
-    // The editor tabs of the home, in the window of its own; the window's
-    // close button attaches the scope again rather than closing its terminals.
+    // The new workspace's `observe_new` hooks run as an effect once the
+    // current update is done, so the columns are adopted only then; what
+    // follows has to wait for it.
     let path = path.to_path_buf();
+    cx.defer(move |cx| {
+        cx.default_global::<DetachedScopes>().adopting = None;
+        finish_detach(window, path, open_paths, active_path, cx);
+    });
+    Ok(window)
+}
+
+/// The editor tabs of the home, in the window of its own; the window's close
+/// button attaches the scope again rather than closing its terminals.
+fn finish_detach(
+    window: WindowHandle<MultiWorkspace>,
+    path: PathBuf,
+    open_paths: Vec<ProjectPath>,
+    active_path: Option<ProjectPath>,
+    cx: &mut App,
+) {
     window
         .update(cx, |multi_workspace, window, cx| {
             let workspace = multi_workspace.workspace().clone();
@@ -210,7 +232,6 @@ pub fn detach(path: &Path, cx: &mut App) -> Result<WindowHandle<MultiWorkspace>>
         })
         .log_err();
     columns::sync_all(cx);
-    Ok(window)
 }
 
 /// Puts the scope of the worktree at `path` back into the unified window and
