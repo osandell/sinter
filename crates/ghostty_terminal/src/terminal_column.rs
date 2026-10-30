@@ -18,7 +18,7 @@ use workspace::{LeadingColumnLayout, Workspace};
 
 use crate::{
     GhosttyTerminal, GhosttyTerminalEvent, InheritContext, TerminalOptions,
-    blocked_note::{self, BlockedNote},
+    blocked_note::{self, BlockedKind, BlockedNote},
     close_confirm::{self, CloseConfirm},
     command_palette::GhosttyCommandPalette,
     graphics::{self, Bitmap, SymbolWeight, darken, lighten, mix},
@@ -324,6 +324,7 @@ pub struct TerminalTab {
     /// acknowledged by (arcoscope's `ack-claude`).
     pub claude_pid: Option<i32>,
     pub blocked: bool,
+    pub blocked_kind: Option<BlockedKind>,
     pub blocked_note: String,
     /// A process runs in one of the tab's splits (the prompt is not free):
     /// Ghostty would ask before closing it. Refreshed on every Claude poll.
@@ -743,6 +744,10 @@ impl TerminalColumn {
                     && let Some(tab) = self.tabs.iter_mut().find(|tab| tab.id == id)
                 {
                     tab.blocked = saved.blocked.unwrap_or(false);
+                    tab.blocked_kind = saved
+                        .blocked_kind
+                        .as_deref()
+                        .and_then(BlockedKind::from_key);
                     tab.blocked_note = saved.blocked_note.clone().unwrap_or_default();
                     if saved.remote.is_none() && saved.session.is_some() {
                         tab.claude_session = saved.session.clone();
@@ -851,6 +856,7 @@ impl TerminalColumn {
             claude_present: false,
             claude_pid: None,
             blocked: false,
+            blocked_kind: None,
             busy: false,
             blocked_note: String::new(),
             worktree: None,
@@ -1513,6 +1519,7 @@ impl TerminalColumn {
             return;
         };
         let note = self.tabs[index].blocked_note.clone();
+        let kind = self.tabs[index].blocked_kind;
         let input = cx.new(|cx| {
             let input = ui_input::InputField::new(window, cx, "Väntar på ...");
             input.set_text(&note, window, cx);
@@ -1525,6 +1532,7 @@ impl TerminalColumn {
             .max(0.);
         self.blocked_note = Some(BlockedNote {
             tab_id,
+            kind,
             input,
             x,
             y: 1. + BAR_HEIGHT,
@@ -1536,7 +1544,15 @@ impl TerminalColumn {
         self.blocked_note.as_ref()
     }
 
-    /// `save` stores the field's trimmed text as the tab's note; either way
+    /// A second click on the chosen kind takes it back to none.
+    pub(crate) fn choose_blocked_kind(&mut self, kind: BlockedKind, cx: &mut Context<Self>) {
+        if let Some(note) = self.blocked_note.as_mut() {
+            note.kind = (note.kind != Some(kind)).then_some(kind);
+            cx.notify();
+        }
+    }
+
+    /// `save` stores the kind and the field's trimmed text; either way
     /// the keyboard goes back to the selected tab.
     pub(crate) fn answer_blocked_note(
         &mut self,
@@ -1550,9 +1566,11 @@ impl TerminalColumn {
         if save {
             let text = note.input.read(cx).text(cx).trim().to_string();
             if let Some(tab) = self.tabs.iter_mut().find(|tab| tab.id == note.tab_id)
-                && tab.blocked_note != text
+                && (tab.blocked_note != text || tab.blocked_kind != note.kind)
             {
                 tab.blocked_note = text;
+                tab.blocked_kind = note.kind;
+                cx.emit(TerminalColumnEvent::TabsChanged);
                 crate::arcoscope::report_note_changed(cx);
             }
         }
@@ -1824,6 +1842,7 @@ impl TerminalColumn {
         if let Some(tab) = self.tabs.iter_mut().find(|tab| tab.id == tab_id) {
             tab.blocked = !tab.blocked;
             if !tab.blocked {
+                tab.blocked_kind = None;
                 tab.blocked_note.clear();
             }
             cx.emit(TerminalColumnEvent::TabsChanged);
@@ -1974,7 +1993,7 @@ fn with_opacity(color: Rgba, opacity: f32) -> Rgba {
     }
 }
 
-fn bitmap_element(bitmap: Option<Bitmap>) -> Option<AnyElement> {
+pub(crate) fn bitmap_element(bitmap: Option<Bitmap>) -> Option<AnyElement> {
     let bitmap = bitmap?;
     Some(
         img(bitmap.image)
@@ -2134,7 +2153,9 @@ impl TerminalColumn {
                 ClaudeState::Absent if !tab.blocked && tab.claude_present => {
                     return bitmap_element(graphics::pixel_gear(rgb(LAMP_IDLE), 0., scale));
                 }
-                ClaudeState::Done | ClaudeState::Absent if tab.blocked => {
+                ClaudeState::Done | ClaudeState::Absent
+                    if tab.blocked && tab.blocked_kind.is_none() =>
+                {
                     return Some(
                         div()
                             .size(px(16.))
@@ -2221,11 +2242,19 @@ impl TerminalColumn {
                     .flex()
                     .items_center()
                     .justify_center()
-                    .children(bitmap_element(graphics::prohibited_mark(
-                        rgb(blocked),
-                        10.,
-                        scale,
-                    )))
+                    .children(bitmap_element(match tab.blocked_kind {
+                        // Inside the note's square it has to be smaller.
+                        Some(kind) => graphics::sf_symbol(
+                            kind.symbol(),
+                            if tab.blocked_note.is_empty() { 10. } else { 8. },
+                            SymbolWeight::Semibold,
+                            rgb(blocked),
+                            Some(if tab.blocked_note.is_empty() { 14. } else { 11. }),
+                            0.,
+                            scale,
+                        ),
+                        None => graphics::prohibited_mark(rgb(blocked), 10., scale),
+                    }))
                     .when(!tab.blocked_note.is_empty(), |this| {
                         this.child(
                             div()
@@ -3086,7 +3115,7 @@ impl Render for TerminalColumn {
             .child(bottom_strip)
             .children(self.render_worktree_picker(cx))
             .children(self.render_close_confirm(cx))
-            .children(self.render_blocked_note(cx))
+            .children(self.render_blocked_note(window, cx))
             .children(self.command_palette.as_ref().map(|(palette, _)| {
                 gpui::deferred(
                     div()

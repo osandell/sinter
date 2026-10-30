@@ -24,6 +24,12 @@ pub struct SavedTab {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub blocked: Option<bool>,
     #[serde(
+        rename = "blockedKind",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub blocked_kind: Option<String>,
+    #[serde(
         rename = "blockedNote",
         default,
         skip_serializing_if = "Option::is_none"
@@ -172,6 +178,7 @@ pub fn save(column: &TerminalColumn, cx: &mut Context<TerminalColumn>) {
             .find_map(|terminal| terminal.read(cx).remote_session_name());
         tabs.push(SavedTab {
             blocked: Some(tab.blocked),
+            blocked_kind: tab.blocked_kind.map(|kind| kind.key().to_string()),
             blocked_note: (!tab.blocked_note.is_empty()).then(|| tab.blocked_note.clone()),
             cwd,
             remote: remote.clone(),

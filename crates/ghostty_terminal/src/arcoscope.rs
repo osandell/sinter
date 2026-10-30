@@ -1606,6 +1606,7 @@ fn describe_tabs(column: &Entity<TerminalColumn>, cx: &App) -> Vec<serde_json::V
                 "claude_title": tab.claude_title.as_ref().map(|title| title.to_string()),
                 "blocked": tab.blocked,
                 "note": tab.blocked_note,
+                "blocker": tab.blocked_kind.map(|kind| kind.key()),
                 // A session's own name over arcoscope's topic, which a fork
                 // shares with its parent.
                 "topic": tab
