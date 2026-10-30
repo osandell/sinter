@@ -11,7 +11,7 @@
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
-use gpui::{App, AppContext as _, Context, Entity, Global, WeakEntity, Window};
+use gpui::{App, AppContext as _, Context, Entity, Global, WeakEntity, Window, WindowHandle};
 use workspace::{MultiWorkspace, Workspace};
 
 use crate::TerminalColumn;
@@ -56,6 +56,16 @@ impl TerminalColumns {
 
     pub fn owners(&self) -> impl Iterator<Item = WeakEntity<Workspace>> + '_ {
         self.columns.iter().map(|(owner, _, _)| owner.clone())
+    }
+
+    /// Hands `column` to another workspace (a scope broken out into a window
+    /// of its own, or back): its registrations follow, so the new owner shows it.
+    pub fn reown(column: &Entity<TerminalColumn>, owner: WeakEntity<Workspace>, cx: &mut App) {
+        for (existing_owner, _, existing) in &mut cx.default_global::<TerminalColumns>().columns {
+            if existing == column {
+                *existing_owner = owner.clone();
+            }
+        }
     }
 
     pub fn unregister(owner: &WeakEntity<Workspace>, cx: &mut App) {
@@ -234,13 +244,46 @@ impl TerminalColumns {
     /// Shows `column` beside whatever editor the window shows.
     pub fn set_current(column: &Entity<TerminalColumn>, cx: &mut App) {
         cx.default_global::<TerminalColumns>().current = Some(column.downgrade());
-        if let Some(window) = workspace::unified_window_handle(cx) {
-            window
-                .update(cx, |multi_workspace, window, cx| {
-                    sync(multi_workspace, window, cx)
-                })
-                .ok();
-        }
+        sync_all(cx);
+    }
+}
+
+/// Every window holding workspaces: the unified one and those of the scopes
+/// broken out of it.
+pub fn windows(cx: &App) -> Vec<WindowHandle<MultiWorkspace>> {
+    cx.windows()
+        .into_iter()
+        .filter_map(|window| window.downcast::<MultiWorkspace>())
+        .collect()
+}
+
+/// The window whose workspaces include `workspace`.
+pub fn window_of_workspace(
+    workspace: &WeakEntity<Workspace>,
+    cx: &App,
+) -> Option<WindowHandle<MultiWorkspace>> {
+    let workspace = workspace.upgrade()?;
+    windows(cx).into_iter().find(|window| {
+        window
+            .read(cx)
+            .is_ok_and(|multi_workspace| multi_workspace.workspaces().any(|own| own == &workspace))
+    })
+}
+
+/// The window `column` is drawn in: its workspace's.
+pub fn window_of_column(
+    column: &Entity<TerminalColumn>,
+    cx: &App,
+) -> Option<WindowHandle<MultiWorkspace>> {
+    window_of_workspace(column.read(cx).workspace(), cx)
+}
+
+/// [`sync`] in every window.
+pub fn sync_all(cx: &mut App) {
+    for window in windows(cx) {
+        window
+            .update(cx, |multi_workspace, window, cx| sync(multi_workspace, window, cx))
+            .ok();
     }
 }
 
@@ -253,7 +296,15 @@ pub fn sync(
 ) {
     let active = multi_workspace.workspace().clone();
     let owned = TerminalColumns::column_for_workspace(&active.downgrade(), cx);
+    // Only this window's columns: a scope broken out into a window of its own
+    // keeps its column there, even while it is the current one.
+    let own: Vec<WeakEntity<Workspace>> =
+        multi_workspace.workspaces().map(|workspace| workspace.downgrade()).collect();
+    let in_window = |column: &Entity<TerminalColumn>, cx: &App| {
+        own.contains(column.read(cx).workspace())
+    };
     let shown = TerminalColumns::current(cx)
+        .filter(|column| in_window(column, cx))
         .filter(|column| {
             // A column whose workspace has closed is gone with it.
             cx.try_global::<TerminalColumns>().is_some_and(|columns| {
@@ -297,6 +348,9 @@ pub fn sync(
         });
     }
     for column in TerminalColumns::all(cx) {
+        if !in_window(&column, cx) {
+            continue;
+        }
         let is_shown = shown.as_ref() == Some(&column) || trailing.as_ref() == Some(&column);
         column.update(cx, |column, cx| {
             column.set_workspace_active(is_shown, cx);

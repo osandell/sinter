@@ -12,6 +12,7 @@ mod blocked_note;
 mod claude_status;
 mod close_confirm;
 mod columns;
+mod detach;
 mod command_palette;
 mod graphics;
 pub mod lf_view;
@@ -42,6 +43,7 @@ mod sheets;
 mod ffi;
 
 pub use columns::{ColumnSide, TerminalColumns};
+pub use detach::is_home as is_detached_home;
 pub use terminal_column::{
     ClaudeState, PickWorktree, TerminalColumn, TerminalColumnEvent, TerminalTab, worktree_split,
 };
@@ -127,13 +129,17 @@ pub fn set_right_side_terminal_in(scope: std::path::PathBuf, on: bool, cx: &mut 
         return;
     }
     TerminalColumns::set_right_side_terminal_in(scope, on, cx);
-    let Some(window) = workspace::unified_window_handle(cx) else {
+    // The window the scope is on: the unified one, or its own.
+    let Some(window) = TerminalColumns::current(cx)
+        .and_then(|column| columns::window_of_column(&column, cx))
+        .or_else(|| workspace::unified_window_handle(cx))
+    else {
         return;
     };
     cx.defer(move |cx| {
+        columns::sync_all(cx);
         window
             .update(cx, |multi_workspace, window, cx| {
-                columns::sync(multi_workspace, window, cx);
                 let workspace = multi_workspace.workspace().clone();
                 // The keyboard goes to the right side either way: it is the
                 // terminal column now, or the editor again.
@@ -310,7 +316,19 @@ pub fn init(cx: &mut App) {
         let Some(window) = window else {
             return;
         };
-        if workspace.project().read(cx).is_local() {
+        if let Some(adopted) = detach::take_adoption(cx) {
+            // A scope broken out into a window of its own: its columns, with
+            // their terminals running, come along instead of new ones.
+            let handle = cx.entity().downgrade();
+            for (side, column) in adopted {
+                TerminalColumns::reown(&column, handle.clone(), cx);
+                column.update(cx, |column, cx| column.rehome(handle.clone(), window, cx));
+                match side {
+                    ColumnSide::Leading => workspace.set_leading_column(Some(column.into()), cx),
+                    ColumnSide::Trailing => workspace.set_trailing_column(Some(column.into()), cx),
+                }
+            }
+        } else if workspace.project().read(cx).is_local() {
             let handle = cx.entity().downgrade();
             let project = workspace.project().clone();
             let column = cx.new(|cx| {

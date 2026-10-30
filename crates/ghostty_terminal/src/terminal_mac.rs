@@ -380,21 +380,7 @@ impl GhosttyTerminal {
         });
 
         let focus_handle = cx.focus_handle();
-        let subscriptions = vec![
-            cx.on_focus(&focus_handle, window, |this, _window, cx| {
-                this.set_focused(true);
-                cx.emit(GhosttyTerminalEvent::Focused);
-            }),
-            cx.on_blur(&focus_handle, window, |this, _window, _cx| {
-                this.set_focused(false);
-            }),
-            cx.observe_window_activation(window, |this, window, _cx| unsafe {
-                ffi::ghostty_app_set_focus(
-                    ffi::ghostty_surface_app(this.surface.surface),
-                    window.is_window_active(),
-                );
-            }),
-        ];
+        let subscriptions = Self::window_subscriptions(&focus_handle, window, cx);
 
         Self {
             focus_handle,
@@ -413,6 +399,45 @@ impl GhosttyTerminal {
             _event_task: event_task,
             _subscriptions: subscriptions,
         }
+    }
+
+    fn window_subscriptions(
+        focus_handle: &FocusHandle,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Vec<Subscription> {
+        vec![
+            cx.on_focus(focus_handle, window, |this, _window, cx| {
+                this.set_focused(true);
+                cx.emit(GhosttyTerminalEvent::Focused);
+            }),
+            cx.on_blur(focus_handle, window, |this, _window, _cx| {
+                this.set_focused(false);
+            }),
+            cx.observe_window_activation(window, |this, window, _cx| unsafe {
+                ffi::ghostty_app_set_focus(
+                    ffi::ghostty_surface_app(this.surface.surface),
+                    window.is_window_active(),
+                );
+            }),
+        ]
+    }
+
+    /// Moves the terminal to `window` (its column went there): the keyboard
+    /// view and what it follows go along; the surface keeps running.
+    pub fn rehome(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        match gpui_native_view(window) {
+            Ok(gpui_view) => {
+                self.surface.input_view.move_to(gpui_view);
+                unsafe {
+                    if let Some(display_id) = display_id(gpui_view) {
+                        ffi::ghostty_surface_set_display_id(self.surface.surface, display_id);
+                    }
+                }
+            }
+            Err(error) => log::error!("terminal not moved to the new window: {error:#}"),
+        }
+        self._subscriptions = Self::window_subscriptions(&self.focus_handle, window, cx);
     }
 
     /// Runs a Ghostty keybinding action, e.g. `new_split:right`.

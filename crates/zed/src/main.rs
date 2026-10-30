@@ -2642,7 +2642,10 @@ fn arcoscope_target(
             .read_with(cx, |mw, cx| {
                 mw.workspaces()
                     .find(|workspace| {
-                        workspace.read(cx).visible_worktrees(cx).any(|wt| {
+                        // A scope broken out is found in its own window, not
+                        // at its hidden home in the unified one.
+                        !ghostty_terminal::is_detached_home(workspace, cx)
+                            && workspace.read(cx).visible_worktrees(cx).any(|wt| {
                             wt.read(cx)
                                 .abs_path()
                                 .to_string_lossy()

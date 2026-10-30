@@ -294,10 +294,24 @@ pub fn unified_window_enabled(cx: &App) -> bool {
     cx.has_global::<UnifiedWindow>()
 }
 
+/// The windows that each hold one workspace broken out of the unified window
+/// (arcoscope's scope on a display of its own). They are never the unified
+/// window, and nothing opens into them.
+#[derive(Default)]
+pub struct DetachedWindows(pub collections::HashSet<WindowId>);
+
+impl Global for DetachedWindows {}
+
+pub fn is_detached_window(window: WindowId, cx: &App) -> bool {
+    cx.try_global::<DetachedWindows>()
+        .is_some_and(|detached| detached.0.contains(&window))
+}
+
 /// The window every workspace opens into when [`UnifiedWindow`] is set.
 pub fn unified_window_handle(cx: &App) -> Option<WindowHandle<MultiWorkspace>> {
     cx.windows()
         .into_iter()
+        .filter(|window| !is_detached_window(window.window_id(), cx))
         .find_map(|window| window.downcast::<MultiWorkspace>())
 }
 

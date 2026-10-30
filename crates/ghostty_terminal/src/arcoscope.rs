@@ -383,16 +383,24 @@ fn show_editor(path: PathBuf, cx: &mut App) {
 }
 
 fn show_editor_locally(path: &Path, cx: &mut App) {
+    // A scope broken out shows its own editor in its own window.
+    if TerminalColumns::current(cx).is_some_and(|column| {
+        crate::columns::window_of_column(&column, cx)
+            .is_some_and(|window| crate::detach::is_detached_window(window, cx))
+    }) {
+        return;
+    }
     let Some(window) = workspace::unified_window_handle(cx) else {
         return;
     };
     window
         .update(cx, |multi_workspace, window, cx| {
             let target = multi_workspace.workspaces().find(|workspace| {
-                workspace
-                    .read(cx)
-                    .visible_worktrees(cx)
-                    .any(|worktree| worktree.read(cx).abs_path().as_ref() == path)
+                !crate::detach::is_home(workspace, cx)
+                    && workspace
+                        .read(cx)
+                        .visible_worktrees(cx)
+                        .any(|worktree| worktree.read(cx).abs_path().as_ref() == path)
             });
             if let Some(target) = target.cloned() {
                 crate::show_workspace_keeping_terminal_focus(multi_workspace, target, window, cx);
@@ -403,8 +411,8 @@ fn show_editor_locally(path: &Path, cx: &mut App) {
 
 /// The shown column's focused terminal, when the keyboard is in it.
 fn focused_terminal(cx: &mut App) -> Option<Entity<GhosttyTerminal>> {
-    let window = workspace::unified_window_handle(cx)?;
     let column = TerminalColumns::current(cx)?;
+    let window = window_for(&column, cx)?;
     window
         .update(cx, |_, window, cx| {
             if !window.is_window_active() {
@@ -712,6 +720,43 @@ async fn handle_control(line: &str, cx: &mut AsyncApp) -> String {
                 if focus { "focused" } else { "raised" }.into()
             })
         }
+        // `detach-window <title>`: the scope of that worktree in a window of
+        // its own (arcoscope puts it on another display). Replies
+        // `detached <id>`, the id `set-window-frame` takes (the macOS window
+        // number; on Linux the GPUI window id, the window titled <title>).
+        "detach-window" => {
+            let Some(title) = argument(1) else {
+                return "error missing-args".into();
+            };
+            cx.update(|cx| match crate::detach::detach(&normalize(title), cx) {
+                Ok(window) => match crate::detach::native_id(window, cx) {
+                    Some(id) => format!("detached\t{id}"),
+                    None => "error no-window-id".into(),
+                },
+                Err(error) => format!("error {error}"),
+            })
+        }
+        // `attach-window <title>`: back into the unified window.
+        "attach-window" => {
+            let Some(title) = argument(1) else {
+                return "error missing-args".into();
+            };
+            cx.update(|cx| match crate::detach::attach(&normalize(title), cx) {
+                Ok(()) => "attached".into(),
+                Err(error) => format!("error {error}"),
+            })
+        }
+        // `list-detached`: `detached` then each scope broken out as its
+        // worktree's title and its window id.
+        "list-detached" => cx.update(|cx| {
+            let mut reply = "detached".to_string();
+            for (path, window) in crate::detach::all(cx) {
+                if let Some(id) = crate::detach::native_id(window, cx) {
+                    reply.push_str(&format!("\t{}\t{id}", path.compact().to_string_lossy()));
+                }
+            }
+            reply
+        }),
         "close-window" => {
             let Some(title) = argument(1) else {
                 return "error missing-args".into();
@@ -862,7 +907,11 @@ async fn handle_control(line: &str, cx: &mut AsyncApp) -> String {
         // window's active workspace. arcoscope's P + R sends it here, since a
         // key chord never reaches Zed's keymap while a terminal has the keyboard.
         "new-agent-tab" => cx.update(|cx| {
-            let Some(window) = workspace::unified_window_handle(cx) else {
+            // The window in front: a scope broken out has its own.
+            let active = cx
+                .active_window()
+                .filter(|window| window.downcast::<workspace::MultiWorkspace>().is_some());
+            let Some(window) = active.or_else(|| workspace::unified_window_handle(cx).map(Into::into)) else {
                 return "no-window".into();
             };
             window
@@ -896,7 +945,7 @@ async fn handle_control(line: &str, cx: &mut AsyncApp) -> String {
                 let Some(column) = TerminalColumns::column_for_path(&normalize(title), cx) else {
                     return "no-window".into();
                 };
-                let Some(window) = workspace::unified_window_handle(cx) else {
+                let Some(window) = window_for(&column, cx) else {
                     return "no-window".into();
                 };
                 let options = TerminalOptions {
@@ -1018,10 +1067,10 @@ async fn handle_control(line: &str, cx: &mut AsyncApp) -> String {
             cx.update(|cx| close_tabs(scope, selector, force, cx))
         }
         "close-worktree-picker" => cx.update(|cx| {
-            let Some(window) = workspace::unified_window_handle(cx) else {
-                return "none".into();
-            };
             let closed = TerminalColumns::all(cx).into_iter().any(|column| {
+                let Some(window) = window_for(&column, cx) else {
+                    return false;
+                };
                 window
                     .update(cx, |_, window, cx| {
                         column.update(cx, |column, cx| column.close_worktree_picker(window, cx))
@@ -1190,6 +1239,26 @@ fn new_window(directory: &str, title: &str, cx: &mut AsyncApp) -> String {
     })
 }
 
+/// The window `column` is drawn in: the unified one, or the window of a scope
+/// broken out of it.
+fn window_for(column: &Entity<TerminalColumn>, cx: &App) -> Option<gpui::AnyWindowHandle> {
+    crate::columns::window_of_column(column, cx)
+        .or_else(|| workspace::unified_window_handle(cx))
+        .map(Into::into)
+}
+
+/// The window `terminal` is drawn in.
+fn window_of_terminal(terminal: &Entity<GhosttyTerminal>, cx: &App) -> Option<gpui::AnyWindowHandle> {
+    let column = TerminalColumns::all(cx).into_iter().find(|column| {
+        column
+            .read(cx)
+            .tabs()
+            .iter()
+            .any(|tab| tab.terminals().contains(terminal))
+    })?;
+    window_for(&column, cx)
+}
+
 /// Both terminal columns of the worktree at `path`, left first: one tab list
 /// per side, and a tab verb names a tab in either.
 fn columns_of_worktree(path: &Path, cx: &App) -> Vec<Entity<TerminalColumn>> {
@@ -1225,7 +1294,7 @@ fn show_column(column: &Entity<TerminalColumn>, focus: bool, cx: &mut App) {
     if !focus {
         return;
     }
-    let Some(window) = workspace::unified_window_handle(cx) else {
+    let Some(window) = crate::columns::window_of_column(column, cx) else {
         return;
     };
     window
@@ -1243,12 +1312,17 @@ fn show_column(column: &Entity<TerminalColumn>, focus: bool, cx: &mut App) {
 /// and makes the app active.
 fn show_terminal(column: &Entity<TerminalColumn>, focus: bool, cx: &mut App) {
     TerminalColumns::set_current(column, cx);
-    if !focus {
-        return;
-    }
-    let Some(window) = workspace::unified_window_handle(cx) else {
+    let Some(window) = crate::columns::window_of_column(column, cx) else {
         return;
     };
+    // A scope broken out comes to the front of its own window's display, even
+    // when only raised.
+    if !focus {
+        if crate::detach::is_detached_window(window, cx) {
+            window.update(cx, |_, window, _| window.activate_window()).ok();
+        }
+        return;
+    }
     window
         .update(cx, |multi_workspace, window, cx| {
             window.activate_window();
@@ -1266,7 +1340,7 @@ fn focus_tab_terminal(
     terminal: &Entity<GhosttyTerminal>,
     cx: &mut App,
 ) {
-    let Some(window) = workspace::unified_window_handle(cx) else {
+    let Some(window) = window_for(column, cx) else {
         return;
     };
     window
@@ -1379,10 +1453,7 @@ fn tab_hints(path: &Path, cx: &mut App) -> String {
     // reachable from the overlay only while they are on screen, which is what
     // `columns_of_worktree` already filters on.
     let columns = columns_of_worktree(path, cx);
-    if columns.is_empty() {
-        return "no-window".into();
-    }
-    let Some(window) = workspace::unified_window_handle(cx) else {
+    let Some(window) = columns.first().and_then(|column| window_for(column, cx)) else {
         return "no-window".into();
     };
     let frame = window
@@ -1415,7 +1486,7 @@ fn pick_worktree(path: &Path, cx: &mut App) -> String {
     let Some(column) = TerminalColumns::column_for_path(path, cx) else {
         return "no-window".into();
     };
-    let Some(window) = workspace::unified_window_handle(cx) else {
+    let Some(window) = window_for(&column, cx) else {
         return "no-window".into();
     };
     let result = window
@@ -1561,9 +1632,6 @@ fn describe_tabs(column: &Entity<TerminalColumn>, cx: &App) -> Vec<serde_json::V
 }
 
 fn close_tabs(scope: &str, selector: &str, force: bool, cx: &mut App) -> String {
-    let Some(window) = workspace::unified_window_handle(cx) else {
-        return "no-window".into();
-    };
     let tab_id = selector.parse::<u64>().ok();
     let mut closed = 0;
     let mut busy = 0;
@@ -1591,6 +1659,9 @@ fn close_tabs(scope: &str, selector: &str, force: bool, cx: &mut App) -> String 
                 busy += 1;
                 continue;
             }
+            let Some(window) = window_for(&column, cx) else {
+                continue;
+            };
             window
                 .update(cx, |_, window, cx| {
                     column.update(cx, |column, cx| {
@@ -1609,6 +1680,14 @@ fn close_tabs(scope: &str, selector: &str, force: bool, cx: &mut App) -> String 
 
 /// Closes the workspaces whose worktree path matches, without asking.
 fn close_worktrees(matches: impl Fn(PathBuf) -> bool, cx: &mut App) -> usize {
+    // A scope broken out goes home first, so it closes like any other.
+    for (path, _) in crate::detach::all(cx) {
+        if matches(path.clone()) {
+            if let Err(error) = crate::detach::attach(&path, cx) {
+                log::error!("could not attach {}: {error:#}", path.display());
+            }
+        }
+    }
     let Some(window) = workspace::unified_window_handle(cx) else {
         return 0;
     };
@@ -1889,7 +1968,7 @@ fn viewport(
     seq: i64,
     cx: &mut App,
 ) -> Option<serde_json::Value> {
-    let window = workspace::unified_window_handle(cx)?;
+    let window = window_of_terminal(terminal, cx)?;
     let frame = window
         .update(cx, |_, window, _| crate::native_window_frame(window))
         .ok()

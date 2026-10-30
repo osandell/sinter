@@ -35,7 +35,8 @@ pub use multi_workspace::{
     MultiWorkspace, MultiWorkspaceEvent, NewThread, NextProject, NextThread, PreviousProject,
     PreviousThread, ProjectGroup, ProjectGroupKey, SerializedProjectGroupState, Sidebar,
     SidebarEvent, SidebarHandle, SidebarRenderState, SidebarSide, ToggleWorkspaceSidebar,
-    UnifiedWindow, sidebar_side_context_menu, unified_window_enabled, unified_window_handle,
+    DetachedWindows, UnifiedWindow, is_detached_window, sidebar_side_context_menu,
+    unified_window_enabled, unified_window_handle,
 };
 pub use path_list::{PathList, SerializedPathList};
 pub use remote::{

@@ -443,7 +443,65 @@ impl TerminalColumn {
     ) -> Self {
         let focus_handle = cx.focus_handle();
         ui::register_arcoscope_terminal_focus(&focus_handle, cx);
-        let mut window_subscriptions = vec![
+        let mut window_subscriptions = Self::window_subscriptions(&focus_handle, window, cx);
+        // Start the shells as soon as the project has its root rather than
+        // when the column is first shown, so every workspace's terminals (and
+        // their resumed Claude sessions) run from launch, like the Ghostty
+        // windows arcoscope opened up front.
+        if let Some(project) = project.as_ref() {
+            window_subscriptions.push(cx.subscribe_in(
+                project,
+                window,
+                |this, _, event, window, cx| {
+                    if matches!(event, project::Event::WorktreeAdded(_)) {
+                        this.ensure_started(window, cx);
+                    }
+                },
+            ));
+        }
+        cx.defer_in(window, |this, window, cx| this.ensure_started(window, cx));
+        crate::claude_status::ClaudeTabStatus::register(
+            window.window_handle(),
+            cx.entity().downgrade(),
+            cx,
+        );
+        Self {
+            displayed_in: workspace.clone(),
+            workspace,
+            side,
+            workspace_path: None,
+            title_path: "👻".into(),
+            worktrees_dir: None,
+            tabs: Vec::new(),
+            selected: 0,
+            started: false,
+            focus_handle,
+            bar_width: MAX_TAB_WIDTH + NEW_TAB_BUTTONS_WIDTH,
+            bar_origin: (0., 0.),
+            split_bounds: Vec::new(),
+            dragging_divider: None,
+            worktree_picker: None,
+            close_confirm: None,
+            blocked_note: None,
+            command_palette: None,
+            fullscreen: false,
+            terminal_side: false,
+            workspace_active: true,
+            column_width: px(800.),
+            subscriptions: Vec::new(),
+            _window_subscriptions: window_subscriptions,
+        }
+    }
+
+    /// What the column follows in the window it is drawn in: made anew when
+    /// the column moves to another window ([`Self::rehome`]).
+    fn window_subscriptions(
+        focus_handle: &FocusHandle,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Vec<Subscription> {
+        let focus_handle = focus_handle.clone();
+        vec![
             cx.observe_window_activation(window, |this, window, cx| {
                 // Whether the shown column's bars may take the collection
                 // colour hangs on this; logged so a bar that lost its colour
@@ -498,54 +556,34 @@ impl TerminalColumn {
                 })
                 .detach();
             }),
-        ];
-        // Start the shells as soon as the project has its root rather than
-        // when the column is first shown, so every workspace's terminals (and
-        // their resumed Claude sessions) run from launch, like the Ghostty
-        // windows arcoscope opened up front.
-        if let Some(project) = project.as_ref() {
-            window_subscriptions.push(cx.subscribe_in(
-                project,
-                window,
-                |this, _, event, window, cx| {
-                    if matches!(event, project::Event::WorktreeAdded(_)) {
-                        this.ensure_started(window, cx);
-                    }
-                },
-            ));
+        ]
+    }
+
+    /// Moves the column, its terminals and what they follow to `window`, for
+    /// `owner`: a scope broken out into a window of its own, or back. The
+    /// terminals keep running.
+    pub fn rehome(
+        &mut self,
+        owner: WeakEntity<Workspace>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.workspace = owner.clone();
+        self.displayed_in = owner;
+        self._window_subscriptions = Self::window_subscriptions(&self.focus_handle, window, cx);
+        let terminals: Vec<Entity<GhosttyTerminal>> =
+            self.tabs.iter().flat_map(|tab| tab.terminals()).collect();
+        self.subscriptions.clear();
+        for terminal in &terminals {
+            terminal.update(cx, |terminal, cx| terminal.rehome(window, cx));
+            self.subscribe(terminal, window, cx);
         }
-        cx.defer_in(window, |this, window, cx| this.ensure_started(window, cx));
-        crate::claude_status::ClaudeTabStatus::register(
+        crate::claude_status::ClaudeTabStatus::rehome(
             window.window_handle(),
             cx.entity().downgrade(),
             cx,
         );
-        Self {
-            displayed_in: workspace.clone(),
-            workspace,
-            side,
-            workspace_path: None,
-            title_path: "👻".into(),
-            worktrees_dir: None,
-            tabs: Vec::new(),
-            selected: 0,
-            started: false,
-            focus_handle,
-            bar_width: MAX_TAB_WIDTH + NEW_TAB_BUTTONS_WIDTH,
-            bar_origin: (0., 0.),
-            split_bounds: Vec::new(),
-            dragging_divider: None,
-            worktree_picker: None,
-            close_confirm: None,
-            blocked_note: None,
-            command_palette: None,
-            fullscreen: false,
-            terminal_side: false,
-            workspace_active: true,
-            column_width: px(800.),
-            subscriptions: Vec::new(),
-            _window_subscriptions: window_subscriptions,
-        }
+        cx.notify();
     }
 
     /// A column for `path` outside any workspace (examples and tests).

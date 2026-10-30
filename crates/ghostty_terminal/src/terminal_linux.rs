@@ -1255,6 +1255,33 @@ impl GhosttyTerminal {
         Ok(cx.new(|cx| Self::new(shared, events_tx, events_rx, working_directory, window, cx)))
     }
 
+    fn window_subscriptions(
+        focus_handle: &FocusHandle,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Vec<Subscription> {
+        vec![
+            cx.on_focus(focus_handle, window, |this, _window, cx| {
+                this.report_focus(true);
+                cx.emit(GhosttyTerminalEvent::Focused);
+                cx.notify();
+            }),
+            cx.on_blur(focus_handle, window, |this, _window, cx| {
+                this.report_focus(false);
+                cx.notify();
+            }),
+        ]
+    }
+
+    /// Moves the terminal to `window` (its column went there). The keystroke
+    /// intercept is the app's, not the window's, and stays.
+    pub fn rehome(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.window_handle = window.window_handle();
+        let intercept = self._subscriptions.pop();
+        self._subscriptions = Self::window_subscriptions(&self.focus_handle, window, cx);
+        self._subscriptions.extend(intercept);
+    }
+
     fn new(
         shared: Arc<Shared>,
         events: mpsc::UnboundedSender<VtEvent>,
@@ -1297,18 +1324,8 @@ impl GhosttyTerminal {
                 }
             })
         };
-        let subscriptions = vec![
-            cx.on_focus(&focus_handle, window, |this, _window, cx| {
-                this.report_focus(true);
-                cx.emit(GhosttyTerminalEvent::Focused);
-                cx.notify();
-            }),
-            cx.on_blur(&focus_handle, window, |this, _window, cx| {
-                this.report_focus(false);
-                cx.notify();
-            }),
-            intercept,
-        ];
+        let mut subscriptions = Self::window_subscriptions(&focus_handle, window, cx);
+        subscriptions.push(intercept);
 
         Self {
             focus_handle,

@@ -583,6 +583,16 @@ impl ClaudeTabStatus {
         }
     }
 
+    /// The column is drawn in another window now (a scope broken out, or back).
+    pub fn rehome(window: AnyWindowHandle, column: WeakEntity<TerminalColumn>, cx: &mut App) {
+        let status = cx.default_global::<ClaudeTabStatus>();
+        for (existing_window, existing) in &mut status.columns {
+            if *existing == column {
+                *existing_window = window;
+            }
+        }
+    }
+
     pub fn register(window: AnyWindowHandle, column: WeakEntity<TerminalColumn>, cx: &mut App) {
         let status = cx.default_global::<ClaudeTabStatus>();
         status.columns.push((window, column));

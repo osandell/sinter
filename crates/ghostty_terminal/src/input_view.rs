@@ -216,6 +216,16 @@ impl InputView {
         }
     }
 
+    /// Moves the view into another window's GPUI view.
+    pub fn move_to(&mut self, gpui_view: id) {
+        self.resign_first_responder();
+        unsafe {
+            let _: () = msg_send![self.view, removeFromSuperview];
+            let _: () = msg_send![gpui_view, addSubview: self.view];
+            (*self.state).gpui_view = gpui_view;
+        }
+    }
+
     pub fn state(&mut self) -> &mut InputState {
         unsafe { &mut *self.state }
     }
