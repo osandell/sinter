@@ -2732,7 +2732,14 @@ impl TerminalColumn {
                             .h_full()
                             .flex()
                             .overflow_x_scroll()
-                            .children(tabs),
+                            .children(tabs)
+                            .child(ui::arcoscope_window_drag_area(
+                                div()
+                                    .id("ghostty-tabs-window-drag")
+                                    .flex_1()
+                                    .min_w_0()
+                                    .h_full(),
+                            )),
                     )
                     .child(
                         new_tab_button("ghostty-new-shell-tab", "New shell tab", cx)

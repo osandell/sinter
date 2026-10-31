@@ -6,7 +6,10 @@
 //! page. Only the active (key) window picks up the page tint; inactive windows
 //! stay on the theme's neutral background.
 
-use gpui::{App, FocusHandle, Global, Hsla, Rgba, SharedString, WeakFocusHandle, Window, rgb};
+use gpui::{
+    App, FocusHandle, Global, Hsla, InteractiveElement, MouseButton, Rgba, SharedString,
+    WeakFocusHandle, Window, rgb,
+};
 
 /// The active arcoscope "page" (0-based), pushed from the arcoscope daemon over Zed's
 /// CLI datagram socket. `None` = unknown.
@@ -685,4 +688,24 @@ pub fn arcoscope_amiga_text(selected: bool) -> Hsla {
 /// beige under the title.
 pub fn arcoscope_amiga_subtext(selected: bool) -> Hsla {
     rgb(if selected { 0xa89984 } else { 0x7c6f64 }).into()
+}
+
+thread_local! {
+    static WINDOW_MOVE_ARMED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Makes an empty part of the window's top row drag the window: Sinter under
+/// arcoscope has no title bar, so the terminal column's tab strip and the
+/// editor's tab bar stand in for it. Only a press on the element itself arms
+/// the move, so a drag that starts on a tab and slides over it does not move
+/// the window.
+pub fn arcoscope_window_drag_area<E: InteractiveElement>(element: E) -> E {
+    element
+        .on_mouse_down(MouseButton::Left, |_, _, _| WINDOW_MOVE_ARMED.set(true))
+        .on_mouse_up(MouseButton::Left, |_, _, _| WINDOW_MOVE_ARMED.set(false))
+        .on_mouse_move(|event, window, _| {
+            if WINDOW_MOVE_ARMED.replace(false) && event.pressed_button == Some(MouseButton::Left) {
+                window.start_window_move();
+            }
+        })
 }

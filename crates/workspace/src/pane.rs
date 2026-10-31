@@ -4097,8 +4097,7 @@ impl Pane {
         tab_count: usize,
         cx: &mut Context<Pane>,
     ) -> impl IntoElement {
-        div()
-            .id("tab_bar_drop_target")
+        ui::arcoscope_window_drag_area(div().id("tab_bar_drop_target"))
             .min_w_6()
             .h(Tab::container_height(cx))
             .flex_grow_1()
