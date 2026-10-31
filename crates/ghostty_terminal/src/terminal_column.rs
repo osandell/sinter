@@ -425,6 +425,9 @@ pub struct TerminalColumn {
     /// arcoscope's fullscreen for this worktree: the side with the keyboard takes
     /// the whole width.
     fullscreen: bool,
+    /// The window is narrower than [`NARROW_SHARE`] of its screen (snapped to
+    /// a half, or made small): one side at a time, laid out as fullscreen.
+    narrow: bool,
     /// Whether the keyboard is in the terminal column (else the editor).
     terminal_side: bool,
     /// Whether this column's workspace is the one the window shows.
@@ -432,6 +435,17 @@ pub struct TerminalColumn {
     column_width: Pixels,
     subscriptions: Vec<(EntityId, Subscription)>,
     _window_subscriptions: Vec<Subscription>,
+}
+
+/// Below this share of its screen's width the window shows one side at a
+/// time (the terminal or the editor), as fullscreen does.
+const NARROW_SHARE: f32 = 2. / 3.;
+
+fn is_narrow(window: &Window, cx: &App) -> bool {
+    let width = f32::from(window.bounds().size.width);
+    window
+        .display(cx)
+        .is_some_and(|display| width < f32::from(display.bounds().size.width) * NARROW_SHARE)
 }
 
 impl TerminalColumn {
@@ -486,6 +500,7 @@ impl TerminalColumn {
             blocked_note: None,
             command_palette: None,
             fullscreen: false,
+            narrow: is_narrow(window, cx),
             terminal_side: false,
             workspace_active: true,
             column_width: px(800.),
@@ -519,6 +534,9 @@ impl TerminalColumn {
             }),
             cx.observe_window_appearance(window, |this, window, cx| {
                 this.sync_color_scheme(window, cx);
+            }),
+            cx.observe_window_bounds(window, |this, window, cx| {
+                this.sync_narrow(window, cx);
             }),
             cx.on_focus(&focus_handle, window, |this, window, cx| {
                 this.focus_selected(window, cx);
@@ -1616,11 +1634,27 @@ impl TerminalColumn {
 
     /// The layout the workspace should use for this column's state.
     pub fn layout(&self) -> LeadingColumnLayout {
-        match (self.fullscreen, self.terminal_side) {
+        match (self.fullscreen || self.narrow, self.terminal_side) {
             (false, _) => LeadingColumnLayout::Beside(self.column_width),
             (true, true) => LeadingColumnLayout::Full,
             (true, false) => LeadingColumnLayout::Hidden,
         }
+    }
+
+    /// The window crossed [`NARROW_SHARE`] of its screen's width: narrower,
+    /// the side with the keyboard fills it as in fullscreen; wider, the two
+    /// sides stand side by side again (unless fullscreen is on).
+    fn sync_narrow(&mut self, window: &Window, cx: &mut Context<Self>) {
+        let narrow = is_narrow(window, cx);
+        if narrow == self.narrow {
+            return;
+        }
+        self.narrow = narrow;
+        if narrow {
+            self.terminal_side = self.focus_handle.contains_focused(window, cx);
+        }
+        cx.notify();
+        self.push_layout(cx);
     }
 
     /// arcoscope's width factor: the column is 800 pt, 650 at 50 %.

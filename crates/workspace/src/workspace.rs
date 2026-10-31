@@ -1401,6 +1401,10 @@ pub struct Workspace {
     /// the embedded terminal column.
     leading_column: Option<AnyView>,
     leading_column_layout: LeadingColumnLayout,
+    /// The share of the row the terminal column takes beside the editor, once
+    /// the seam between them has been dragged; until then the column's own
+    /// width (arcoscope's terminal width).
+    leading_column_share: Option<f32>,
     /// A terminal column drawn where the editor is, full height, when the
     /// right side is in terminal mode. The editor stays mounted behind it.
     trailing_column: Option<AnyView>,
@@ -1853,6 +1857,7 @@ impl Workspace {
             titlebar_item: None,
             leading_column: None,
             leading_column_layout: LeadingColumnLayout::default(),
+            leading_column_share: None,
             trailing_column: None,
             hidden_in_window: false,
             notifications: Notifications::default(),
@@ -8718,6 +8723,20 @@ impl Focusable for Workspace {
     }
 }
 
+/// The grab area over the seam between the terminal column and the editor.
+const SEAM_HANDLE_WIDTH: Pixels = px(8.);
+/// How far the seam may be dragged, as the terminal column's share of the row.
+const SEAM_SHARE_LIMITS: (f32, f32) = (0.15, 0.85);
+
+#[derive(Clone)]
+struct DraggedSeam;
+
+impl Render for DraggedSeam {
+    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+        gpui::Empty
+    }
+}
+
 #[derive(Clone)]
 struct DraggedDock(DockPosition);
 
@@ -8900,12 +8919,16 @@ impl Render for Workspace {
                 })
                 .children(frame)
         };
+        let share = self.leading_column_share;
         let leading_column = self.leading_column.clone().and_then(|column| match layout {
             LeadingColumnLayout::Beside(width) => Some(
                 framed(div(), "terminal_window")
                     .flex_none()
                     .h_full()
-                    .w(width)
+                    .map(|this| match share {
+                        Some(share) => this.w(relative(share)),
+                        None => this.w(width),
+                    })
                     .child(column),
             ),
             LeadingColumnLayout::Full => Some(
@@ -8927,6 +8950,38 @@ impl Render for Workspace {
                 .child(column)
         });
         let right_is_terminal = trailing_half.is_some();
+        // The seam between the terminal column and the editor drags the share
+        // each side gets; a double click gives the column its own width back.
+        let seam = matches!(layout, LeadingColumnLayout::Beside(_)).then(|| {
+            div().w_0().h_full().relative().flex_none().child(
+                div()
+                    .id("leading-column-seam")
+                    .absolute()
+                    .top_0()
+                    .h_full()
+                    .left(-SEAM_HANDLE_WIDTH / 2.)
+                    .w(SEAM_HANDLE_WIDTH)
+                    .cursor_col_resize()
+                    .occlude()
+                    .on_drag(DraggedSeam, |seam, _, _, cx| {
+                        cx.stop_propagation();
+                        cx.new(|_| seam.clone())
+                    })
+                    .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                    .on_mouse_up(
+                        MouseButton::Left,
+                        cx.listener(|workspace, event: &gpui::MouseUpEvent, _, cx| {
+                            if event.click_count == 2 {
+                                workspace.leading_column_share = None;
+                                cx.notify();
+                                cx.stop_propagation();
+                            }
+                        }),
+                    ),
+            )
+        });
+        let [_, pad_right, _, pad_left] =
+            ui::arcoscope_skin_padding("workspace", cx).unwrap_or([px(0.); 4]);
         h_flex()
             .relative()
             .size_full()
@@ -8934,8 +8989,23 @@ impl Render for Workspace {
                 ui::arcoscope_skin_padding("workspace", cx),
                 |this, [top, right, bottom, left]| this.pt(top).pr(right).pb(bottom).pl(left),
             )
+            .on_drag_move(cx.listener(
+                move |workspace, event: &DragMoveEvent<DraggedSeam>, _, cx| {
+                    let row = event.bounds.size.width - pad_left - pad_right;
+                    if row <= px(0.) {
+                        return;
+                    }
+                    let share = (event.event.position.x - event.bounds.left() - pad_left) / row;
+                    let share = share.clamp(SEAM_SHARE_LIMITS.0, SEAM_SHARE_LIMITS.1);
+                    if workspace.leading_column_share != Some(share) {
+                        workspace.leading_column_share = Some(share);
+                        cx.notify();
+                    }
+                },
+            ))
             .children(ui::arcoscope_skin_surface("workspace", cx))
             .children(leading_column)
+            .children(seam)
             .child(
                 framed(div(), "editor_window")
                     .size_full()
