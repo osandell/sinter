@@ -2316,11 +2316,20 @@ impl Render for MultiWorkspace {
                 )
                 .children(right_sidebar)
                 .child(self.workspace().read(cx).modal_layer.clone())
-                .children(crate::arcoscope_hints::render_overlay(
-                    window,
-                    self.workspace().read(cx).active_pane().entity_id(),
-                    cx,
-                ))
+                // Not over an empty collection's page: the workspace under it
+                // keeps the places its rows last had.
+                .children(
+                    ui::arcoscope_empty(cx)
+                        .is_none()
+                        .then(|| {
+                            crate::arcoscope_hints::render_overlay(
+                                window,
+                                self.workspace().read(cx).active_pane().entity_id(),
+                                cx,
+                            )
+                        })
+                        .flatten(),
+                )
                 .children(self.sidebar_overlay.as_ref().map(|view| {
                     deferred(div().absolute().size_full().inset_0().occlude().child(
                         v_flex().h(px(0.0)).top_20().items_center().child(
