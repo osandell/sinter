@@ -292,7 +292,7 @@ fn symbol_svg(name: &str, weight: SymbolWeight) -> Option<(&'static str, f64)> {
         // same shapes.
         "person.fill" => r#"<circle cx="8" cy="4.6" r="3" fill="C"/><path fill="C" d="M2.2 14.2c0-3.3 2.6-5.4 5.8-5.4s5.8 2.1 5.8 5.4z"/>"#,
         "clock" => r#"<circle cx="8" cy="8" r="6.2" fill="none" stroke="C" stroke-width="W"/><path d="M8 4.3V8l2.6 1.7" fill="none" stroke="C" stroke-width="W" stroke-linecap="round" stroke-linejoin="round"/>"#,
-        "hammer.fill" => r#"<path fill="C" d="M2.6 4.2l3.2-2.6c1.6-.4 3.3.1 4.4 1.2l-1.6 1.4 1.3 1.3-1.5 1.5-1.3-1.3-1.2 1-2.8-.1z"/><path d="M8.4 7.4l5.3 5.6" fill="none" stroke="C" stroke-width="2.4" stroke-linecap="round"/>"#,
+        "hammer.fill" => r#"<g transform="translate(0.3 0.4) rotate(45 8 8)"><path fill="C" d="M3 3.9C3.9 2.2 5.4 1.6 7.2 1.6H10.2V2.1H12.4V5.3H10.2V5.8H6.4V4.1C5.1 3.6 4 3.5 3 3.9Z"/><rect x="7.15" y="5.4" width="2.3" height="10.4" rx="1.15" fill="C"/></g>"#,
         "link" => r#"<path d="M6.9 9.1a2.6 2.6 0 0 0 3.7 0l2.4-2.4a2.6 2.6 0 0 0-3.7-3.7l-1 1M9.1 6.9a2.6 2.6 0 0 0-3.7 0L3 9.3a2.6 2.6 0 0 0 3.7 3.7l1-1" fill="none" stroke="C" stroke-width="W" stroke-linecap="round"/>"#,
         "lock.fill" => r#"<path d="M5 7.2V5.1a3 3 0 0 1 6 0v2.1" fill="none" stroke="C" stroke-width="1.8"/><rect x="2.9" y="7" width="10.2" height="7.6" rx="1.6" fill="C"/>"#,
         "eye" => r#"<path d="M1.3 8C2.9 5.1 5.3 3.6 8 3.6s5.1 1.5 6.7 4.4c-1.6 2.9-4 4.4-6.7 4.4S2.9 10.9 1.3 8z" fill="none" stroke="C" stroke-width="W" stroke-linejoin="round"/><circle cx="8" cy="8" r="2.2" fill="C"/>"#,

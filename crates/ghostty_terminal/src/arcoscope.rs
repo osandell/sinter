@@ -1903,8 +1903,10 @@ fn describe_tabs(column: &Entity<TerminalColumn>, cx: &App) -> Vec<serde_json::V
                 "session": tab.claude_session,
                 "claude_title": tab.claude_title.as_ref().map(|title| title.to_string()),
                 "blocked": tab.blocked,
-                "note": tab.blocked_note,
-                "blocker": tab.blocked_kind.map(|kind| kind.key()),
+                // An unblocked tab keeps its last kind and note for the next
+                // block, but they are not shown.
+                "note": if tab.blocked { tab.blocked_note.as_str() } else { "" },
+                "blocker": tab.blocked_kind.filter(|_| tab.blocked).map(|kind| kind.key()),
                 // A session's own name over arcoscope's topic, which a fork
                 // shares with its parent.
                 "topic": tab

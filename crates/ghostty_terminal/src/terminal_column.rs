@@ -1421,6 +1421,10 @@ impl TerminalColumn {
                 .any(|terminal| terminal.read(cx).needs_confirm_quit());
             if self.tabs[index].busy != busy {
                 self.tabs[index].busy = busy;
+                // A shell starting a command is no longer blocked either.
+                if busy && !self.tabs[index].claude_present {
+                    self.tabs[index].blocked = false;
+                }
                 cx.notify();
             }
         }
@@ -1429,6 +1433,18 @@ impl TerminalColumn {
                 continue;
             };
             let tab = &mut self.tabs[index];
+            // Claude going on means the tab is no longer blocked; it does not
+            // come back by itself when the turn is done.
+            if tab.blocked
+                && tab.claude_state != result.state
+                && matches!(
+                    result.state,
+                    ClaudeState::Working | ClaudeState::Question | ClaudeState::Background
+                )
+            {
+                tab.blocked = false;
+                cx.notify();
+            }
             tab.claude_pid = result.pid;
             if result.pid.is_none() {
                 let changed = tab.claude_title.is_some()
@@ -1840,11 +1856,9 @@ impl TerminalColumn {
 
     pub fn toggle_blocked(&mut self, tab_id: u64, cx: &mut Context<Self>) {
         if let Some(tab) = self.tabs.iter_mut().find(|tab| tab.id == tab_id) {
+            // The kind and note stay with the tab, so blocking it again on
+            // the same thing needs no new note.
             tab.blocked = !tab.blocked;
-            if !tab.blocked {
-                tab.blocked_kind = None;
-                tab.blocked_note.clear();
-            }
             cx.emit(TerminalColumnEvent::TabsChanged);
             cx.notify();
         }
@@ -2243,29 +2257,17 @@ impl TerminalColumn {
                     .items_center()
                     .justify_center()
                     .children(bitmap_element(match tab.blocked_kind {
-                        // Inside the note's square it has to be smaller.
                         Some(kind) => graphics::sf_symbol(
                             kind.symbol(),
-                            if tab.blocked_note.is_empty() { 10. } else { 8. },
+                            10.,
                             SymbolWeight::Semibold,
                             rgb(blocked),
-                            Some(if tab.blocked_note.is_empty() { 14. } else { 11. }),
+                            Some(14.),
                             0.,
                             scale,
                         ),
                         None => graphics::prohibited_mark(rgb(blocked), 10., scale),
                     }))
-                    .when(!tab.blocked_note.is_empty(), |this| {
-                        this.child(
-                            div()
-                                .absolute()
-                                .top(px(1.))
-                                .left(px(1.))
-                                .size(px(14.))
-                                .border_1()
-                                .border_color(rgb(blocked)),
-                        )
-                    })
                     .into_any_element(),
             ),
             // A vector skin marks neither an idle Claude nor an idle shell, and
