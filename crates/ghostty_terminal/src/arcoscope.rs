@@ -640,10 +640,40 @@ fn start_control_server(cx: &mut App) {
         }
     }
 
+    // ARCOSCOPE_KEY_TIMING=1: each request logged with how long it took and
+    // when the window with the keyboard had drawn after it.
+    let timing = std::env::var("ARCOSCOPE_KEY_TIMING").is_ok_and(|value| value == "1");
     cx.spawn(async move |cx| {
         while let Some(request) = requests_rx.next().await {
+            let started = std::time::Instant::now();
             let reply = handle_control(&request.line, cx).await;
             request.reply.send(reply).ok();
+            if timing {
+                let verb = request
+                    .line
+                    .split('\t')
+                    .next()
+                    .unwrap_or_default()
+                    .to_string();
+                let handled = started.elapsed();
+                cx.update(|cx| {
+                    if let Some(window) = cx.active_window()
+                        && let Err(error) = window.update(cx, |_, window, _| {
+                            let verb = verb.clone();
+                            window.on_next_frame(move |_, _| {
+                                log::info!(
+                                    "arcoscope {verb}: handled in {} us, drawn after {} us",
+                                    handled.as_micros(),
+                                    started.elapsed().as_micros()
+                                );
+                            });
+                            window.refresh();
+                        })
+                    {
+                        log::debug!("arcoscope timing: {error}");
+                    }
+                });
+            }
         }
     })
     .detach();
