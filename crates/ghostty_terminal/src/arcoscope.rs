@@ -1419,18 +1419,23 @@ fn show_column(column: &Entity<TerminalColumn>, focus: bool, cx: &mut App) {
 /// Shows `column` in the window; with `focus`, also gives it the keyboard
 /// and makes the app active.
 fn show_terminal(column: &Entity<TerminalColumn>, focus: bool, cx: &mut App) {
-    TerminalColumns::set_current(column, cx);
     let Some(window) = crate::columns::window_of_column(column, cx) else {
+        TerminalColumns::set_current(column, cx);
         return;
     };
-    // A scope broken out comes to the front of its own window's display, even
-    // when only raised.
+    // A scope broken out and only raised comes to the front of its own
+    // window's display, without becoming the current column and without the
+    // keyboard: the current column is the scope the unified window shows and
+    // arcoscope reads as the one on screen, and an activation hands the
+    // window the keys (Hyprland's focus_on_activate). Raised that way,
+    // arcoscope lit the broken-out scope and sent it the keys meant for the
+    // scope in the unified window.
+    if !focus && crate::detach::is_detached_window(window, cx) {
+        window.update(cx, |_, window, _| window.order_front()).ok();
+        return;
+    }
+    TerminalColumns::set_current(column, cx);
     if !focus {
-        if crate::detach::is_detached_window(window, cx) {
-            window
-                .update(cx, |_, window, _| window.activate_window())
-                .ok();
-        }
         return;
     }
     window

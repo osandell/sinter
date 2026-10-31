@@ -589,6 +589,11 @@ impl TerminalColumn {
     ) {
         self.workspace = owner.clone();
         self.displayed_in = owner;
+        // A window of its own fills its screen: both sides beside each other,
+        // whatever one-side state the window it came from had (arcoscope's
+        // fullscreen for that window, or its narrowness).
+        self.fullscreen = false;
+        self.narrow = is_narrow(window, cx);
         self._window_subscriptions = Self::window_subscriptions(&self.focus_handle, window, cx);
         let terminals: Vec<Entity<GhosttyTerminal>> =
             self.tabs.iter().flat_map(|tab| tab.terminals()).collect();
